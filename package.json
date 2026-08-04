@@ -11,9 +11,9 @@
 		"dev": "node --experimental-strip-types --watch src/server.ts",
 		"build": "tsc --noEmit",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"test:e2e": "vitest run --config vitest.e2e.config.ts",
+		"test": "vitest run --project unit",
+		"test:watch": "vitest --project unit",
+		"test:e2e": "vitest run --project e2e",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"migrate": "node --experimental-strip-types lib/store/migrate.ts"
@@ -28,6 +28,6 @@
 		"@biomejs/biome": "^1.9.4",
 		"@types/node": "^24.0.0",
 		"typescript": "^5.7.2",
-		"vitest": "^2.1.8"
+		"vitest": "^4.1.10"
 	}
 }

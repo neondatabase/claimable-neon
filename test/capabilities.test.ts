@@ -7,10 +7,10 @@ import {
 	grantedCapabilities,
 } from "../lib/capabilities/capabilities.ts";
 import {
+	SCOPES,
 	clampCredentialScopes,
 	formatScopeString,
 	parseScopeString,
-	SCOPES,
 	scopesForCapabilities,
 } from "../lib/capabilities/scopes.ts";
 
@@ -90,10 +90,7 @@ describe("vocabulary invariants", () => {
 
 	it("gives every capability at least one scope", () => {
 		for (const capability of CAPABILITIES) {
-			expect(
-				scopesForCapabilities([capability]).length,
-				capability,
-			).toBeGreaterThan(0);
+			expect(scopesForCapabilities([capability]).length, capability).toBeGreaterThan(0);
 		}
 	});
 });
