@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Secrets. The service holds a Neon org API key and a token-signing key; neither may ever
+# reach the repo.
+.env
+.env.*
+!.env.example
+
+# Neon CLI project context
+.neon
+
+# Function bundles produced by `neon deploy`
+.neon-build/
+*.zip

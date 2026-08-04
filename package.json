@@ -1,0 +1,33 @@
+{
+	"name": "claimable-neon",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Provisions instant, unclaimed Neon Postgres for AI agents over the auth.md protocol.",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"dev": "node --experimental-strip-types --watch src/server.ts",
+		"build": "tsc --noEmit",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:e2e": "vitest run --config vitest.e2e.config.ts",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"migrate": "node --experimental-strip-types lib/store/migrate.ts"
+	},
+	"dependencies": {
+		"hono": "^4.6.14",
+		"jose": "^5.9.6",
+		"postgres": "^3.4.5",
+		"zod": "^3.24.1"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@types/node": "^24.0.0",
+		"typescript": "^5.7.2",
+		"vitest": "^2.1.8"
+	}
+}
