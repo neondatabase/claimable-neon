@@ -1,13 +1,31 @@
 import { defineConfig } from "vitest/config";
 
-/**
- * Unit and contract tests. The e2e suite has its own config (`vitest.e2e.config.ts`) because it
- * provisions real Neon projects: it needs long timeouts, and it must not run in parallel against
- * a shared organization.
- */
 export default defineConfig({
 	test: {
-		include: ["test/**/*.test.ts"],
-		exclude: ["test/e2e/**"],
+		projects: [
+			{
+				test: {
+					name: "unit",
+					include: ["test/**/*.test.ts"],
+					exclude: ["test/e2e/**"],
+				},
+			},
+			{
+				test: {
+					name: "e2e",
+					include: ["test/e2e/**/*.test.ts"],
+					// There are no mocks here by design: the failures worth catching are the
+					// ones where our understanding of Neon's API is wrong, and a mock encodes
+					// that same misunderstanding. Provisioning a real project and waiting for a
+					// compute is slow, hence the timeouts.
+					testTimeout: 120_000,
+					hookTimeout: 180_000,
+					// Provisioning writes to a shared organization; parallel files would race
+					// on project quotas and make a real limit look like flakiness.
+					fileParallelism: false,
+					retry: 0,
+				},
+			},
+		],
 	},
 });

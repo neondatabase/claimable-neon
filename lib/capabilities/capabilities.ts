@@ -9,7 +9,7 @@
 /** Everything a caller may ask for. Ordering is the order we report status in. */
 export const CAPABILITIES = [
 	"postgres",
-	"dataapi",
+	"data_api",
 	"auth",
 	"storage",
 	"functions",
@@ -52,7 +52,7 @@ export const ALWAYS_GRANTED: readonly Capability[] = ["postgres"];
  * Neon Auth has a side effect that cannot be undone by deleting the project (see
  * `docs/neon-auth.md`), so it must never happen because a default said so.
  */
-export const GRANTABLE_ON_REQUEST: readonly Capability[] = ["dataapi", "auth"];
+export const GRANTABLE_ON_REQUEST: readonly Capability[] = ["data_api", "auth"];
 
 /**
  * Not available pre-claim. Every request for one of these is recorded before it is denied —
@@ -71,7 +71,7 @@ export const REQUIRES_CLAIM: readonly Capability[] = [
 
 const DENIAL_MESSAGES: Record<Capability, string> = {
 	postgres: "",
-	dataapi: "",
+	data_api: "",
 	auth: "",
 	storage:
 		"Object storage is only available on a claimed project. Claim this project to enable it.",

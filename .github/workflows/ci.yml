@@ -1,0 +1,70 @@
+# Runner choice, per the neondatabase org's constraints:
+#
+# Every job here runs on `ubuntu-latest` rather than the `neondatabase-protected-runner-group`,
+# and that is deliberate. The protected group has no public egress, so it cannot reach the public
+# npm registry, and this repo has no internal package mirror. Move a job onto the group only once
+# it needs nothing public.
+#
+# The e2e suite is not wired in yet: it provisions real Neon projects and needs an organization
+# API key, so it will land as a separate job on the protected group (which does reach the Neon
+# Management API) once the credentials exist.
+#
+# Third-party actions are pinned to full commit SHAs because the org enforces
+# `sha_pinning_required` server-side once Actions is enabled.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, lint, and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests
+        run: bun run test
+
+  lockfile-hygiene:
+    name: Lockfile references no private registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A lockfile committed from a Databricks machine can carry
+      # npm-proxy.cloud.databricks.com, which resolves nowhere else and breaks installs for
+      # every other developer and for this workflow. `bun install --frozen-lockfile` above
+      # would fail on it, but only after a slow install, and the cause would not be obvious.
+      - name: Reject proxy hosts in bun.lock
+        run: |
+          if grep -q 'npm-proxy\.cloud\.databricks\.com' bun.lock; then
+            echo "::error file=bun.lock::bun.lock references the Databricks npm proxy."
+            echo "Rewrite it: sed -i '' 's#https://npm-proxy.cloud.databricks.com/#https://registry.npmjs.org/#g' bun.lock"
+            exit 1
+          fi
+          echo "bun.lock references no private registry."

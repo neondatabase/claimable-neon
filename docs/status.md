@@ -31,6 +31,23 @@ target shape.
 - The Hono app and server entry point
 - e2e suite
 
+## Decided while reviewing the first contract draft
+
+**Registration does not create a transfer request.** An earlier draft had registration return a
+full `claim` object with a `user_code`, which implies the transfer request already exists. That
+reintroduces two problems at once: a standing accept-able offer for the project's whole life, and a
+registration response whose possession is equivalent to possession of the project. Registration
+now returns only `claim.start_url`; `POST /v1/databases/{id}/claim` creates the transfer request
+per attempt, with its own expiry.
+
+**Capability and scope names are uniformly snake_case, and a scope is always
+`<capability>.<action>`.** `dataapi` alongside `ai_gateway` was inconsistent on a wire format that
+reaches docs, CLI flags, and telemetry rows. `test/capabilities.test.ts` pins the invariant so the
+two vocabularies cannot drift apart again.
+
+**Project lifetime is policy, not protocol.** 72 hours today, exposed only as
+`project.expires_at`. Clients read the field; nothing hard-codes the window.
+
 ## Known open questions
 
 These are unresolved and each one changes the design if it goes the wrong way.

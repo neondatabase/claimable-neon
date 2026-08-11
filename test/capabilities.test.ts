@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	CAPABILITIES,
 	decideCapabilities,
 	deniedCapabilities,
 	grantedCapabilities,
 } from "../lib/capabilities/capabilities.ts";
 import {
+	SCOPES,
 	clampCredentialScopes,
 	formatScopeString,
 	parseScopeString,
@@ -18,10 +20,10 @@ describe("decideCapabilities", () => {
 		expect(grantedCapabilities(decisions)).toEqual(["postgres"]);
 	});
 
-	it("keeps dataapi and auth off unless asked for", () => {
-		expect(grantedCapabilities(decideCapabilities([]))).not.toContain("dataapi");
+	it("keeps data_api and auth off unless asked for", () => {
+		expect(grantedCapabilities(decideCapabilities([]))).not.toContain("data_api");
 		expect(grantedCapabilities(decideCapabilities([]))).not.toContain("auth");
-		expect(grantedCapabilities(decideCapabilities(["dataapi"]))).toContain("dataapi");
+		expect(grantedCapabilities(decideCapabilities(["data_api"]))).toContain("data_api");
 		expect(grantedCapabilities(decideCapabilities(["auth"]))).toContain("auth");
 	});
 
@@ -43,9 +45,9 @@ describe("decideCapabilities", () => {
 	// The whole point of accepting a request we intend to deny: a partial answer would hide
 	// which capabilities an agent actually wanted.
 	it("decides every requested capability rather than failing on the first denial", () => {
-		const decisions = decideCapabilities(["storage", "dataapi", "functions", "auth"]);
+		const decisions = decideCapabilities(["storage", "data_api", "functions", "auth"]);
 		expect(decisions).toHaveLength(5); // + postgres
-		expect(grantedCapabilities(decisions)).toEqual(["postgres", "dataapi", "auth"]);
+		expect(grantedCapabilities(decisions)).toEqual(["postgres", "data_api", "auth"]);
 		expect(deniedCapabilities(decisions).map((d) => d.capability)).toEqual([
 			"storage",
 			"functions",
@@ -60,22 +62,50 @@ describe("decideCapabilities", () => {
 	});
 
 	it("is stable under duplicate requests", () => {
-		const decisions = decideCapabilities(["dataapi", "dataapi", "postgres"]);
-		expect(decisions.map((d) => d.capability)).toEqual(["postgres", "dataapi"]);
+		const decisions = decideCapabilities(["data_api", "data_api", "postgres"]);
+		expect(decisions.map((d) => d.capability)).toEqual(["postgres", "data_api"]);
+	});
+});
+
+describe("vocabulary invariants", () => {
+	// The wire format is forever. `dataapi` alongside `ai_gateway` was inconsistent, and once a
+	// capability name reaches docs, CLI flags, and telemetry rows, changing it is a breaking
+	// change. This pins the rule that makes the two vocabularies checkable against each other:
+	// a scope is always `<capability>.<action>`.
+	it("derives every scope's resource prefix from a capability name", () => {
+		for (const scope of SCOPES) {
+			const [resource] = scope.split(".");
+			expect(
+				CAPABILITIES as readonly string[],
+				`scope "${scope}" has no matching capability`,
+			).toContain(resource);
+		}
+	});
+
+	it("uses snake_case for every capability", () => {
+		for (const capability of CAPABILITIES) {
+			expect(capability, capability).toMatch(/^[a-z]+(_[a-z]+)*$/);
+		}
+	});
+
+	it("gives every capability at least one scope", () => {
+		for (const capability of CAPABILITIES) {
+			expect(scopesForCapabilities([capability]).length, capability).toBeGreaterThan(0);
+		}
 	});
 });
 
 describe("scopesForCapabilities", () => {
 	it("separates the data-plane scope from the control-plane scope", () => {
-		expect(scopesForCapabilities(["dataapi"])).toEqual([
-			"dataapi.query",
-			"dataapi.configure",
+		expect(scopesForCapabilities(["data_api"])).toEqual([
+			"data_api.query",
+			"data_api.configure",
 		]);
 	});
 
 	it("returns scopes in a stable order regardless of capability order", () => {
-		expect(scopesForCapabilities(["dataapi", "postgres"])).toEqual(
-			scopesForCapabilities(["postgres", "dataapi"]),
+		expect(scopesForCapabilities(["data_api", "postgres"])).toEqual(
+			scopesForCapabilities(["postgres", "data_api"]),
 		);
 	});
 });
@@ -113,7 +143,7 @@ describe("clampCredentialScopes", () => {
 	it("grants nothing when the token carries no credential-backed scope", () => {
 		const { granted, denied } = clampCredentialScopes(
 			["storage:read"],
-			["postgres.read", "postgres.write", "dataapi.query"],
+			["postgres.read", "postgres.write", "data_api.query"],
 		);
 		expect(granted).toEqual([]);
 		expect(denied).toEqual(["storage:read"]);
@@ -122,7 +152,7 @@ describe("clampCredentialScopes", () => {
 
 describe("scope strings", () => {
 	it("round-trips", () => {
-		const scopes = scopesForCapabilities(["postgres", "dataapi"]);
+		const scopes = scopesForCapabilities(["postgres", "data_api"]);
 		expect(parseScopeString(formatScopeString(scopes))).toEqual(scopes);
 	});
 

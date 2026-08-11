@@ -12,14 +12,14 @@ import type { Capability } from "./capabilities.ts";
 export const SCOPES = [
 	"postgres.read",
 	"postgres.write",
-	"dataapi.query",
-	"dataapi.configure",
+	"data_api.query",
+	"data_api.configure",
 	"auth.configure",
 	"storage.read",
 	"storage.write",
 	"functions.deploy",
 	"functions.invoke",
-	"ai.invoke",
+	"ai_gateway.invoke",
 ] as const;
 
 export type Scope = (typeof SCOPES)[number];
@@ -30,18 +30,18 @@ export const isScope = (value: string): value is Scope =>
 /**
  * Scopes granted by each capability.
  *
- * Control plane and data plane are separated on purpose: `dataapi.configure` authorizes
- * *enabling* the Data API and choosing its identity provider, while `dataapi.query` only
+ * Control plane and data plane are separated on purpose: `data_api.configure` authorizes
+ * *enabling* the Data API and choosing its identity provider, while `data_api.query` only
  * authorizes using it. Collapsing them would let a token that can run queries also repoint the
  * JWKS URL.
  */
 const CAPABILITY_SCOPES: Record<Capability, readonly Scope[]> = {
 	postgres: ["postgres.read", "postgres.write"],
-	dataapi: ["dataapi.query", "dataapi.configure"],
+	data_api: ["data_api.query", "data_api.configure"],
 	auth: ["auth.configure"],
 	storage: ["storage.read", "storage.write"],
 	functions: ["functions.deploy", "functions.invoke"],
-	ai_gateway: ["ai.invoke"],
+	ai_gateway: ["ai_gateway.invoke"],
 };
 
 export const scopesForCapabilities = (capabilities: readonly Capability[]): Scope[] => {
@@ -69,7 +69,7 @@ export type NeonCredentialScope = (typeof NEON_CREDENTIAL_SCOPES)[number];
 const TO_NEON_SCOPE: Partial<Record<Scope, NeonCredentialScope>> = {
 	"storage.read": "storage:read",
 	"storage.write": "storage:write",
-	"ai.invoke": "ai_gateway:invoke",
+	"ai_gateway.invoke": "ai_gateway:invoke",
 	"functions.invoke": "functions:invoke",
 };
 

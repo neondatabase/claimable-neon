@@ -34,7 +34,7 @@ can also delete it. Every capability distinction this product needs has to live 
 | Capability | Pre-claim | Notes |
 |---|---|---|
 | `postgres` | always | The product. Never opt-in. |
-| `dataapi` | on request | Off by default. |
+| `data_api` | on request | Off by default. |
 | `auth` | on request | Off by default. See [`docs/neon-auth.md`](docs/neon-auth.md) — ownership transfers separately from the project. |
 | `storage` | no | Neon has no object-storage quota, and the S3 data plane does not pass through this service, so there is no position from which to cap bytes or egress. |
 | `functions` | no | `neon dev` runs functions locally against a claimable database without deploying them. |
@@ -60,7 +60,7 @@ Register, then exchange the assertion for an access token:
 
 ```http
 POST /v1/agent/identity
-{ "type": "anonymous", "capabilities": ["postgres", "dataapi"] }
+{ "type": "anonymous", "capabilities": ["postgres", "data_api"] }
 ```
 
 ```json
@@ -70,13 +70,20 @@ POST /v1/agent/identity
   "project": { "id": "quiet-fog-12345678", "expires_at": "2026-08-07T…Z" },
   "capabilities": [
     { "capability": "postgres", "granted": true },
-    { "capability": "dataapi",  "granted": true },
+    { "capability": "data_api",  "granted": true },
     { "capability": "storage",  "granted": false, "reason": "requires_claim",
       "message": "Object storage is only available on a claimed project…" }
   ],
-  "claim": { "url": "https://…", "user_code": "WXYZ-1234", "expires_at": "…" }
+  "claim": { "start_url": "https://claimable.neon.tech/claim/reg_…" }
 }
 ```
+
+Registration returns a link to hand a human, and **nothing that can complete a claim**. It does
+not create a transfer request and does not mint a `user_code`. That is deliberate: a transfer
+request created at provisioning time would be an accept-able offer standing for the project's
+whole life, and returning its id at registration would make possession of the registration
+response equivalent to possession of the project. `POST /v1/databases/{id}/claim` is what creates
+the transfer request, and it is scoped to one attempt with its own expiry.
 
 ```http
 POST /v1/oauth2/token
@@ -90,10 +97,18 @@ Resources, all bearer-authenticated:
 ```http
 GET    /v1/databases/{id}
 GET    /v1/databases/{id}/credentials
-POST   /v1/databases/{id}/claim
-GET    /v1/databases/{id}/claim
+POST   /v1/databases/{id}/claim     # creates the transfer request, returns url + user_code
+GET    /v1/databases/{id}/claim     # poll: pending | accepted | reconciled | failed_plan | expired
 DELETE /v1/databases/{id}
 ```
+
+Only `reconciled` means the claim finished. `accepted` means the project moved but teardown of the
+pre-claim credentials has not been confirmed, and treating that as done is how a caller ends up
+trusting a database whose old secrets still work.
+
+`failed_plan` carries the `reasons[]` array from Neon's `406` — the recipient's plan cannot own the
+project. It is a normal outcome, not an internal error, and it surfaces after the human has already
+signed up, so it has to be rendered rather than swallowed.
 
 And the Management API proxy, which is what lets the `neon` CLI and `neon.ts` work unchanged
 against a claimable project:
@@ -114,7 +129,18 @@ assertion" from "our own upstream credential broke":
 ```
 
 Only `invalid_grant`, `project_expired`, and `project_claimed` are authoritative enough for a
-client to discard a stored credential.
+client to discard a stored credential. Everything else — including a `404` from an unmapped route
+and any transport failure — leaves the stored assertion alone, because deleting the one durable
+secret in response to a transient fault destroys a live project's only credential.
+
+`capability_requires_claim` is **not** returned by registration. Asking for an unavailable
+capability there is a `200` with `granted: false`, so the request can be recorded. The error code
+appears later, when a call actually touches an ungranted capability — a `neon deploy` that reaches
+`POST …/functions/{slug}/deployments`, for instance. Registration tells you what you have; this
+tells you that you just tried to use something you do not.
+
+The project lifetime is policy rather than protocol: it is 72 hours today, exposed as
+`project.expires_at`. Read the field rather than hard-coding the window.
 
 ## Development
 
