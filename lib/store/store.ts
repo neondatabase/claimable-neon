@@ -380,6 +380,7 @@ export const revokeAllTokens = async (
 export type DerivedCredentialKind =
 	| "branch_credential"
 	| "connection_uri"
+	| "role_password"
 	| "auth_secret";
 
 export type DerivedCredential = {

@@ -86,7 +86,7 @@ create index if not exists tokens_registration_idx on tokens (registration_id, k
 create table if not exists derived_credentials (
     id                bigserial primary key,
     registration_id   text        not null references registrations (id) on delete cascade,
-    kind              text        not null check (kind in ('branch_credential', 'connection_uri', 'auth_secret')),
+    kind              text        not null,
     -- The upstream identifier needed to revoke it, when one exists.
     external_id       text,
     branch_id         text,
@@ -97,6 +97,14 @@ create table if not exists derived_credentials (
     revoked_at        timestamptz,
     revoke_error      text
 );
+
+-- Kept as an explicit idempotent migration because `create table if not exists` does not widen
+-- the constraint in databases initialized by an older service version.
+alter table derived_credentials
+    drop constraint if exists derived_credentials_kind_check;
+alter table derived_credentials
+    add constraint derived_credentials_kind_check
+    check (kind in ('branch_credential', 'connection_uri', 'role_password', 'auth_secret'));
 
 create index if not exists derived_credentials_live_idx
     on derived_credentials (registration_id)

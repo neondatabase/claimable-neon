@@ -465,6 +465,16 @@ const proxyManagementRequest = async (
 	const body = await proxyRequestBody(request, matched.operation);
 	const client = await projectClient(dependencies, authenticated.registration);
 	const response = await client.request(request.method, `${apiPath}${url.search}`, body);
+	if (matched.operation.derivedCredential === "role_password") {
+		await recordDerivedCredential(dependencies.sql, {
+			registrationId: authenticated.registration.id,
+			kind: "role_password",
+			externalId: matched.params.roleName,
+			branchId: matched.params.branchId,
+			scopes: ["postgres.read", "postgres.write"],
+			expiresAt: authenticated.registration.expiresAt,
+		});
+	}
 	const data = matched.operation.project
 		? projectResponse(response.data, matched.operation.project)
 		: response.data;

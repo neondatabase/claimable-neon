@@ -36,6 +36,8 @@ export type Operation = {
 	body?: z.ZodTypeAny;
 	/** Fields kept from the response. Absent means the response passes through unchanged. */
 	project?: readonly string[];
+	/** A secret-bearing response that must be tracked for claim-time teardown. */
+	derivedCredential?: "role_password";
 	description: string;
 };
 
@@ -113,6 +115,12 @@ export const OPERATIONS: readonly Operation[] = [
 	},
 	{
 		method: "GET",
+		pattern: "/projects/:projectId/branches/:branchId/endpoints",
+		scope: null,
+		description: "Endpoint list for a branch",
+	},
+	{
+		method: "GET",
 		pattern: "/projects/:projectId/connection_uri",
 		scope: "postgres.read",
 		description: "Connection string, pooled or direct",
@@ -128,6 +136,13 @@ export const OPERATIONS: readonly Operation[] = [
 		pattern: "/projects/:projectId/branches/:branchId/roles",
 		scope: "postgres.read",
 		description: "Role list for a branch",
+	},
+	{
+		method: "GET",
+		pattern: "/projects/:projectId/branches/:branchId/roles/:roleName/reveal_password",
+		scope: "postgres.read",
+		derivedCredential: "role_password",
+		description: "Reveal a database role password for a connection string",
 	},
 	{
 		method: "GET",

@@ -58,6 +58,23 @@ describe("matchOperation", () => {
 		});
 	});
 
+	it("allows branch-scoped endpoint discovery used by connection-string and psql", () => {
+		const matched = matchOperation("GET", "/projects/proj-1/branches/br-2/endpoints");
+		expect(matched?.params).toEqual({
+			projectId: "proj-1",
+			branchId: "br-2",
+		});
+	});
+
+	it("marks revealed role passwords for derived-credential tracking", () => {
+		const matched = matchOperation(
+			"GET",
+			"/projects/proj-1/branches/br-2/roles/neondb_owner/reveal_password",
+		);
+		expect(matched?.operation.derivedCredential).toBe("role_password");
+		expect(matched?.params.roleName).toBe("neondb_owner");
+	});
+
 	it("does not match a route outside the allowlist", () => {
 		expect(matchOperation("GET", "/projects")).toBeNull();
 		expect(matchOperation("POST", "/projects")).toBeNull();
