@@ -56,7 +56,7 @@ Clients must send the full requested configuration, including services that curr
 claim. The CLI and `neon.ts` must not remove unsupported services before the request reaches this
 API. The API records the request and returns `requires_claim` with the service-specific next step.
 
-## Planned API
+## API
 
 Discovery lives at the root; everything else is under `/v1`.
 
@@ -170,15 +170,25 @@ bun run typecheck
 bun run lint
 ```
 
-The planned end-to-end suite talks to the real Neon API:
+For local service testing:
 
 ```bash
-NEON_API_KEY=… NEON_ORG_ID=… DATABASE_URL=… bun run test:e2e
+cp .env.example .env.local
+bun run secrets:generate >> .env.local
+# Fill DATABASE_URL and NEON_API_KEY in .env.local.
+bun run migrate
+bun run dev
 ```
 
-There are no mocks. The failures worth catching are the ones where the implementation's
-understanding of the Neon API is wrong. A mock would encode the same assumption it is supposed
-to test.
+In another terminal, run the live user journey:
+
+```bash
+bun run test:e2e
+```
+
+The suite calls the service on `http://localhost:8787`, creates a real project in the documented
+smoke-test organization, connects to Postgres, tests the Management API proxy and token
+revocation, then deletes the project. There are no mocks.
 
 ### Configuration
 
@@ -188,7 +198,8 @@ All required; the process refuses to start without them.
 |---|---|
 | `PUBLIC_ORIGIN` | Public origin. Token issuer and discovery-document base. |
 | `DATABASE_URL` | This service's own state. Injected by Neon Functions. |
-| `NEON_API_KEY` | Organization-scoped key for the org holding unclaimed projects. |
+| `NEON_API_KEY` | Personal API key for a dedicated service user in the org holding unclaimed projects. Neon rejects organization keys when minting project-scoped keys. |
+| `NEON_API_KEY_KIND` | `service_user` in deployment. `user_local` is accepted only when `PUBLIC_ORIGIN` uses localhost. |
 | `NEON_ORG_ID` | That organization. |
 | `TOKEN_SIGNING_KEY` | Ed25519 private JWK. |
 | `KEY_ENCRYPTION_KEY` | 32 bytes base64; encrypts per-project Neon keys at rest. |

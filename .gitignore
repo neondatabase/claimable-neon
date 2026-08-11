@@ -3,7 +3,7 @@ dist/
 coverage/
 *.tsbuildinfo
 
-# Secrets. The service holds a Neon org API key and a token-signing key; neither may ever
+# Secrets. The service holds a Neon service-user API key and a token-signing key; neither may ever
 # reach the repo.
 .env
 .env.*

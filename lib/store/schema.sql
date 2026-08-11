@@ -14,6 +14,8 @@ create table if not exists registrations (
     neon_project_id   text        not null unique,
     neon_org_id       text        not null,
     neon_branch_id    text        not null,
+    database_name     text        not null default 'neondb',
+    role_name         text        not null default 'neondb_owner',
 
     -- Scopes granted pre-claim. Post-claim scopes are not stored: after a claim the caller uses
     -- their own Neon credential and this row stops authorizing anything.
@@ -49,6 +51,17 @@ create table if not exists project_keys (
     nonce             bytea       not null,
     created_at        timestamptz not null default now(),
     revoked_at        timestamptz
+);
+
+-- Capability-specific values returned only during provisioning. Auth server keys are secrets;
+-- encrypting the whole payload keeps one storage rule for every capability credential.
+create table if not exists service_credentials (
+    registration_id   text        not null references registrations (id) on delete cascade,
+    capability        text        not null check (capability in ('auth', 'data_api')),
+    ciphertext        bytea       not null,
+    nonce             bytea       not null,
+    created_at        timestamptz not null default now(),
+    primary key (registration_id, capability)
 );
 
 -- Issued assertions and access tokens, so both can be revoked. A JWT that cannot be revoked is
@@ -113,7 +126,7 @@ create table if not exists claim_attempts (
     id                    bigserial primary key,
     registration_id       text        not null references registrations (id) on delete cascade,
     transfer_request_id   text,
-    user_code             text        not null,
+    user_code_hash        text        not null,
     -- Binds redemption to one identity, so possession of the claim URL is not possession of the
     -- project.
     claim_email           text,
@@ -130,7 +143,7 @@ create index if not exists claim_attempts_registration_idx
     on claim_attempts (registration_id, created_at desc);
 
 create unique index if not exists claim_attempts_user_code_live_idx
-    on claim_attempts (user_code)
+    on claim_attempts (user_code_hash)
     where state = 'pending';
 
 -- Rate limiting counters, keyed by whatever dimension the limit applies to. Per-token limits are

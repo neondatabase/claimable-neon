@@ -44,7 +44,7 @@ feature in its own directory under `lib/`.
 - Use `ServiceError` and a code from `lib/errors/errors.ts` across module boundaries. Do not
   swallow errors.
 
-## Testing against Neon
+## Local service and live Neon testing
 
 Unit and contract tests require no credentials:
 
@@ -52,14 +52,35 @@ Unit and contract tests require no credentials:
 bun run test
 ```
 
-The end-to-end suite is not implemented yet. When it is, it will use production Neon
-infrastructure and create real, billable resources:
+Create `.env.local` from the checked-in template. Generate the signing and encryption keys, then
+fill in the two remaining secrets:
 
 ```bash
-NEON_API_KEY=… NEON_ORG_ID=… DATABASE_URL=… bun run test:e2e
+cp .env.example .env.local
+bun run secrets:generate >> .env.local
 ```
 
-Do not run it until its test organization and cleanup procedure are documented in this repository.
+- `DATABASE_URL` is a dedicated database for this service's state.
+- `NEON_API_KEY` is a newly created, revocable personal API key. Neon's endpoint for minting
+  project-scoped keys rejects organization API keys.
+- Keep `NEON_API_KEY_KIND=user_local`. The process refuses this key mode on a non-localhost origin.
+- Keep `NEON_ORG_ID=org-old-flower-82714815`, the documented throwaway Neon organization.
+
+Initialize the state schema and start the local API:
+
+```bash
+bun run migrate
+bun run dev
+```
+
+In another terminal:
+
+```bash
+bun run test:e2e
+```
+
+The suite provisions a real project, uses it, and deletes it. A failed cleanup fails the test. After
+a failed run, verify that no project with the `claimable-local-` prefix remains before retrying.
 Do not add mocks for Neon behavior; use pure tests for the functional core and real infrastructure
 for I/O behavior.
 

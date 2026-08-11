@@ -1,6 +1,6 @@
 /**
- * The Neon Management API client used *internally* — with the org key at provisioning time, and
- * with a project-scoped key when acting for a caller.
+ * The Neon Management API client used *internally* — with the dedicated service-user key at
+ * provisioning time, and with a project-scoped key when acting for a caller.
  *
  * Deliberately hand-rolled rather than generated: this service must only ever reach a small,
  * enumerated set of endpoints, and a generated client exposing the whole API would make the
@@ -15,9 +15,9 @@ export type NeonClientOptions = {
 	fetchImpl?: typeof fetch;
 };
 
-export type NeonResponse<T> = {
+export type NeonResponse = {
 	status: number;
-	data: T;
+	data: unknown;
 	requestId: string | undefined;
 };
 
@@ -26,6 +26,14 @@ const jsonHeaders = (apiKey: string): Record<string, string> => ({
 	"Content-Type": "application/json",
 	Accept: "application/json",
 });
+
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+export const isRetryableNeonFailure = (method: string, status?: number): boolean => {
+	if (status === 423 || status === 429 || status === 503) return true;
+	if (!IDEMPOTENT_METHODS.has(method.toUpperCase())) return false;
+	return status === undefined || status === 408 || status >= 500;
+};
 
 export class NeonClient {
 	private readonly apiKey: string;
@@ -38,11 +46,7 @@ export class NeonClient {
 		this.fetchImpl = options.fetchImpl ?? fetch;
 	}
 
-	async request<T>(
-		method: string,
-		path: string,
-		body?: unknown,
-	): Promise<NeonResponse<T>> {
+	async request(method: string, path: string, body?: unknown): Promise<NeonResponse> {
 		const url = `${this.baseUrl}${path}`;
 		let response: Response;
 		try {
@@ -56,13 +60,17 @@ export class NeonClient {
 			throw new ServiceError(
 				"upstream_error",
 				`Could not reach the Neon API (${method} ${path}).`,
-				{ origin: "upstream", cause },
+				{
+					origin: "upstream",
+					retryable: isRetryableNeonFailure(method),
+					cause,
+				},
 			);
 		}
 
 		const requestId = response.headers.get("x-request-id") ?? undefined;
 		const text = await response.text();
-		const data = parseJson<T>(text);
+		const data = parseJson(text);
 
 		if (!response.ok) {
 			throw new ServiceError(
@@ -70,6 +78,7 @@ export class NeonClient {
 				neonErrorMessage(data) ?? `Neon API returned ${response.status}.`,
 				{
 					origin: "upstream",
+					retryable: isRetryableNeonFailure(method, response.status),
 					upstreamStatus: response.status,
 					...(requestId ? { upstreamRequestId: requestId } : {}),
 					details: data,
@@ -80,48 +89,52 @@ export class NeonClient {
 		return { status: response.status, data, requestId };
 	}
 
-	get<T>(path: string): Promise<NeonResponse<T>> {
-		return this.request<T>("GET", path);
+	get(path: string): Promise<NeonResponse> {
+		return this.request("GET", path);
 	}
 
-	post<T>(path: string, body?: unknown): Promise<NeonResponse<T>> {
-		return this.request<T>("POST", path, body);
+	post(path: string, body?: unknown): Promise<NeonResponse> {
+		return this.request("POST", path, body);
 	}
 
-	patch<T>(path: string, body?: unknown): Promise<NeonResponse<T>> {
-		return this.request<T>("PATCH", path, body);
+	patch(path: string, body?: unknown): Promise<NeonResponse> {
+		return this.request("PATCH", path, body);
 	}
 
-	put<T>(path: string, body?: unknown): Promise<NeonResponse<T>> {
-		return this.request<T>("PUT", path, body);
+	put(path: string, body?: unknown): Promise<NeonResponse> {
+		return this.request("PUT", path, body);
 	}
 
-	delete<T>(path: string): Promise<NeonResponse<T>> {
-		return this.request<T>("DELETE", path);
+	delete(path: string): Promise<NeonResponse> {
+		return this.request("DELETE", path);
 	}
 }
 
-const parseJson = <T>(text: string): T => {
-	if (text.length === 0) return undefined as T;
+const parseJson = (text: string): unknown => {
+	if (text.length === 0) return undefined;
 	try {
-		return JSON.parse(text) as T;
+		return JSON.parse(text);
 	} catch {
 		// Neon returning HTML where JSON was promised is a real failure mode (a gateway error
 		// page, usually). Surface it as an upstream problem rather than pretending the body was
 		// an empty object, which would make a 502 look like a successful empty response.
-		return { __nonJsonBody: text.slice(0, 500) } as T;
+		return { __nonJsonBody: text.slice(0, 500) };
 	}
 };
 
 const neonErrorMessage = (data: unknown): string | undefined => {
 	if (typeof data !== "object" || data === null) return undefined;
-	const record = data as Record<string, unknown>;
-	if (typeof record.message === "string") return record.message;
-	const error = record.error;
+	if ("message" in data && typeof data.message === "string") return data.message;
+	if (!("error" in data)) return undefined;
+	const error = data.error;
 	if (typeof error === "string") return error;
-	if (typeof error === "object" && error !== null) {
-		const nested = (error as Record<string, unknown>).message;
-		if (typeof nested === "string") return nested;
+	if (
+		typeof error === "object" &&
+		error !== null &&
+		"message" in error &&
+		typeof error.message === "string"
+	) {
+		return error.message;
 	}
 	return undefined;
 };

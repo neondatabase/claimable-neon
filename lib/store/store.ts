@@ -14,6 +14,11 @@ import { ServiceError } from "../errors/errors.ts";
 
 export type Sql = postgres.Sql<Record<string, never>>;
 
+const textArray = (sql: Sql, values: readonly string[]) =>
+	sql`array(
+		select jsonb_array_elements_text(${sql.json([...values])})
+	)`;
+
 export type ClaimState =
 	| "unclaimed"
 	| "pending"
@@ -32,6 +37,8 @@ export type Registration = {
 	neonProjectId: string;
 	neonOrgId: string;
 	neonBranchId: string;
+	databaseName: string;
+	roleName: string;
 	scopes: Scope[];
 	createdAt: Date;
 	expiresAt: Date;
@@ -51,6 +58,8 @@ type RegistrationRow = {
 	neon_project_id: string;
 	neon_org_id: string;
 	neon_branch_id: string;
+	database_name: string;
+	role_name: string;
 	scopes: string[];
 	created_at: Date;
 	expires_at: Date;
@@ -70,6 +79,8 @@ const toRegistration = (row: RegistrationRow): Registration => ({
 	neonProjectId: row.neon_project_id,
 	neonOrgId: row.neon_org_id,
 	neonBranchId: row.neon_branch_id,
+	databaseName: row.database_name,
+	roleName: row.role_name,
 	scopes: row.scopes as Scope[],
 	createdAt: row.created_at,
 	expiresAt: row.expires_at,
@@ -106,6 +117,8 @@ export type CreateRegistrationInput = {
 	neonProjectId: string;
 	neonOrgId: string;
 	neonBranchId: string;
+	databaseName: string;
+	roleName: string;
 	scopes: readonly Scope[];
 	expiresAt: Date;
 };
@@ -117,11 +130,13 @@ export const createRegistration = async (
 	const [row] = await sql<RegistrationRow[]>`
 		insert into registrations (
 			id, identity_type, asserted_subject, asserted_issuer,
-			neon_project_id, neon_org_id, neon_branch_id, scopes, expires_at
+			neon_project_id, neon_org_id, neon_branch_id, database_name, role_name,
+			scopes, expires_at
 		) values (
 			${input.id}, ${input.identityType}, ${input.assertedSubject ?? null},
 			${input.assertedIssuer ?? null}, ${input.neonProjectId}, ${input.neonOrgId},
-			${input.neonBranchId}, ${sql.array([...input.scopes])}, ${input.expiresAt}
+			${input.neonBranchId}, ${input.databaseName}, ${input.roleName},
+			${textArray(sql, input.scopes)}, ${input.expiresAt}
 		)
 		returning *`;
 	if (!row) {
@@ -210,6 +225,112 @@ export const revokeRegistration = async (
 		where id = ${id}`;
 };
 
+export const deleteRegistration = async (sql: Sql, id: string): Promise<void> => {
+	await sql`delete from registrations where id = ${id}`;
+};
+
+// --- project and service credentials ------------------------------------------------------
+
+export type StoredProjectKey = {
+	neonKeyId: number;
+	ciphertext: Buffer;
+	nonce: Buffer;
+	revokedAt: Date | null;
+};
+
+export const storeProjectKey = async (
+	sql: Sql,
+	input: {
+		registrationId: string;
+		neonKeyId: number;
+		ciphertext: Buffer;
+		nonce: Buffer;
+	},
+): Promise<void> => {
+	await sql`
+		insert into project_keys (registration_id, neon_key_id, ciphertext, nonce)
+		values (${input.registrationId}, ${input.neonKeyId}, ${input.ciphertext}, ${input.nonce})`;
+};
+
+export const getProjectKey = async (
+	sql: Sql,
+	registrationId: string,
+): Promise<StoredProjectKey> => {
+	const [row] = await sql<
+		{
+			neon_key_id: string;
+			ciphertext: Buffer;
+			nonce: Buffer;
+			revoked_at: Date | null;
+		}[]
+	>`
+		select neon_key_id, ciphertext, nonce, revoked_at
+		from project_keys
+		where registration_id = ${registrationId}`;
+	if (!row) {
+		throw new ServiceError(
+			"internal_error",
+			"Registration has no stored project credential.",
+		);
+	}
+	return {
+		neonKeyId: Number(row.neon_key_id),
+		ciphertext: row.ciphertext,
+		nonce: row.nonce,
+		revokedAt: row.revoked_at,
+	};
+};
+
+export const markProjectKeyRevoked = async (
+	sql: Sql,
+	registrationId: string,
+): Promise<void> => {
+	await sql`
+		update project_keys
+		set revoked_at = coalesce(revoked_at, now())
+		where registration_id = ${registrationId}`;
+};
+
+export type ServiceCredentialCapability = "auth" | "data_api";
+
+export const storeServiceCredential = async (
+	sql: Sql,
+	input: {
+		registrationId: string;
+		capability: ServiceCredentialCapability;
+		ciphertext: Buffer;
+		nonce: Buffer;
+	},
+): Promise<void> => {
+	await sql`
+		insert into service_credentials (registration_id, capability, ciphertext, nonce)
+		values (${input.registrationId}, ${input.capability}, ${input.ciphertext}, ${input.nonce})`;
+};
+
+export const getServiceCredentials = async (
+	sql: Sql,
+	registrationId: string,
+): Promise<
+	{
+		capability: ServiceCredentialCapability;
+		ciphertext: Buffer;
+		nonce: Buffer;
+	}[]
+> => {
+	const rows = await sql<
+		{
+			capability: ServiceCredentialCapability;
+			ciphertext: Buffer;
+			nonce: Buffer;
+		}[]
+	>`
+		select capability, ciphertext, nonce
+		from service_credentials
+		where registration_id = ${registrationId}
+		order by capability`;
+	return rows;
+};
+
 // --- tokens -------------------------------------------------------------------------------
 
 export const recordToken = async (
@@ -225,7 +346,7 @@ export const recordToken = async (
 	await sql`
 		insert into tokens (jti, registration_id, kind, scopes, expires_at)
 		values (${input.jti}, ${input.registrationId}, ${input.kind},
-				${sql.array([...input.scopes])}, ${input.expiresAt})`;
+				${textArray(sql, input.scopes)}, ${input.expiresAt})`;
 };
 
 export const isTokenRevoked = async (sql: Sql, jti: string): Promise<boolean> => {
@@ -284,7 +405,7 @@ export const recordDerivedCredential = async (
 		insert into derived_credentials
 			(registration_id, kind, external_id, branch_id, scopes, expires_at)
 		values (${input.registrationId}, ${input.kind}, ${input.externalId ?? null},
-				${input.branchId ?? null}, ${sql.array([...(input.scopes ?? [])])},
+				${input.branchId ?? null}, ${textArray(sql, input.scopes ?? [])},
 				${input.expiresAt ?? null})`;
 };
 
@@ -368,4 +489,124 @@ export const capabilityDemand = async (
 		granted: row.granted,
 		requests: Number(row.requests),
 	}));
+};
+
+// --- claim attempts -----------------------------------------------------------------------
+
+export type ClaimAttemptState =
+	| "pending"
+	| "accepted"
+	| "reconciled"
+	| "failed_plan"
+	| "expired"
+	| "cancelled";
+
+export type ClaimAttempt = {
+	id: number;
+	registrationId: string;
+	transferRequestId: string | null;
+	state: ClaimAttemptState;
+	failureDetails: unknown;
+	createdAt: Date;
+	expiresAt: Date;
+	completedAt: Date | null;
+};
+
+type ClaimAttemptRow = {
+	id: string;
+	registration_id: string;
+	transfer_request_id: string | null;
+	state: ClaimAttemptState;
+	failure_details: unknown;
+	created_at: Date;
+	expires_at: Date;
+	completed_at: Date | null;
+};
+
+const toClaimAttempt = (row: ClaimAttemptRow): ClaimAttempt => ({
+	id: Number(row.id),
+	registrationId: row.registration_id,
+	transferRequestId: row.transfer_request_id,
+	state: row.state,
+	failureDetails: row.failure_details,
+	createdAt: row.created_at,
+	expiresAt: row.expires_at,
+	completedAt: row.completed_at,
+});
+
+export const createClaimAttempt = async (
+	sql: Sql,
+	input: {
+		registrationId: string;
+		userCodeHash: string;
+		expiresAt: Date;
+	},
+): Promise<ClaimAttempt> => {
+	const [row] = await sql<ClaimAttemptRow[]>`
+		insert into claim_attempts (registration_id, user_code_hash, expires_at)
+		values (${input.registrationId}, ${input.userCodeHash}, ${input.expiresAt})
+		returning *`;
+	if (!row) {
+		throw new ServiceError("internal_error", "Failed to persist the claim attempt.");
+	}
+	return toClaimAttempt(row);
+};
+
+export const findPendingClaimByCode = async (
+	sql: Sql,
+	userCodeHash: string,
+): Promise<ClaimAttempt | null> => {
+	const [row] = await sql<ClaimAttemptRow[]>`
+		select *
+		from claim_attempts
+		where user_code_hash = ${userCodeHash} and state = 'pending'
+		order by created_at desc
+		limit 1`;
+	return row ? toClaimAttempt(row) : null;
+};
+
+export const latestClaimAttempt = async (
+	sql: Sql,
+	registrationId: string,
+): Promise<ClaimAttempt | null> => {
+	const [row] = await sql<ClaimAttemptRow[]>`
+		select *
+		from claim_attempts
+		where registration_id = ${registrationId}
+		order by created_at desc
+		limit 1`;
+	return row ? toClaimAttempt(row) : null;
+};
+
+export const startClaimTransfer = async (
+	sql: Sql,
+	input: {
+		attemptId: number;
+		transferRequestId: string;
+	},
+): Promise<void> => {
+	await sql`
+		update claim_attempts
+		set transfer_request_id = ${input.transferRequestId}
+		where id = ${input.attemptId} and state = 'pending'`;
+};
+
+export const setClaimAttemptState = async (
+	sql: Sql,
+	input: {
+		attemptId: number;
+		state: ClaimAttemptState;
+		failureDetails?: postgres.JSONValue;
+	},
+): Promise<void> => {
+	await sql`
+		update claim_attempts
+		set state = ${input.state},
+			failure_details = ${input.failureDetails === undefined ? null : sql.json(input.failureDetails)},
+			completed_at = case
+				when ${input.state} in ('accepted', 'reconciled', 'failed_plan', 'expired', 'cancelled')
+				then coalesce(completed_at, now())
+				else completed_at
+			end
+		where id = ${input.attemptId}`;
 };

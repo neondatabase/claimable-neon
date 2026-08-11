@@ -97,7 +97,7 @@ describe("matchOperation", () => {
 
 describe("request body validation", () => {
 	it("rejects unknown fields rather than stripping them", () => {
-		const schema = bodyFor("POST", "/projects/:projectId/branches/:branchId/auth");
+		const schema = bodyFor("POST", "/projects/:projectId/branches/:branchId/neon_auth");
 		const result = schema?.safeParse({
 			auth_provider: "better_auth",
 			send_email: true,
@@ -213,6 +213,18 @@ describe("projectResponse", () => {
 		);
 		expect(operation?.project).toBeDefined();
 		expect(operation?.project).not.toContain("org_id");
+		expect(
+			projectResponse(
+				{
+					project: {
+						id: "p",
+						name: "n",
+						org_id: "org-secret",
+					},
+				},
+				operation?.project ?? [],
+			),
+		).toEqual({ project: { id: "p", name: "n" } });
 	});
 
 	it("passes non-objects through untouched", () => {

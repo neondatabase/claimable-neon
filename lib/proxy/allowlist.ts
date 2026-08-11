@@ -26,7 +26,7 @@ export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
  */
 export type Operation = {
 	method: HttpMethod;
-	/** e.g. `/projects/:projectId/branches/:branchId/auth` */
+	/** e.g. `/projects/:projectId/branches/:branchId/neon_auth` */
 	pattern: string;
 	/** The scope a token must carry. `null` means any valid token for the project. */
 	scope: Scope | null;
@@ -131,7 +131,7 @@ export const OPERATIONS: readonly Operation[] = [
 	},
 	{
 		method: "GET",
-		pattern: "/projects/:projectId/branches/:branchId/auth",
+		pattern: "/projects/:projectId/branches/:branchId/neon_auth",
 		scope: null,
 		description: "Neon Auth state",
 	},
@@ -186,7 +186,7 @@ export const OPERATIONS: readonly Operation[] = [
 	},
 	{
 		method: "POST",
-		pattern: "/projects/:projectId/branches/:branchId/auth",
+		pattern: "/projects/:projectId/branches/:branchId/neon_auth",
 		scope: "auth.configure",
 		capability: "auth",
 		body: authCreate,
@@ -342,10 +342,12 @@ export const STRIPPED_REQUEST_HEADERS: readonly string[] = [
 /** Keep only the listed fields, recursively for the common `{ thing: {...} }` envelope. */
 export const projectResponse = (value: unknown, keep: readonly string[]): unknown => {
 	if (typeof value !== "object" || value === null) return value;
-	const record = value as Record<string, unknown>;
+	if ("project" in value) {
+		return { project: projectResponse(value.project, keep) };
+	}
 	const out: Record<string, unknown> = {};
 	for (const key of keep) {
-		if (key in record) out[key] = record[key];
+		if (key in value) out[key] = Reflect.get(value, key);
 	}
 	return out;
 };

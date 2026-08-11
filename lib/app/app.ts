@@ -1,0 +1,973 @@
+import { randomUUID } from "node:crypto";
+import { Hono } from "hono";
+import { z } from "zod";
+
+import {
+	REQUIRES_CLAIM,
+	decideCapabilities,
+	grantedCapabilities,
+} from "../capabilities/capabilities.ts";
+import { hasScope, scopesForCapabilities } from "../capabilities/scopes.ts";
+import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
+import type { Config } from "../config/config.ts";
+import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts";
+import {
+	authMarkdown,
+	authorizationServerMetadata,
+	protectedResourceMetadata,
+} from "../discovery/discovery.ts";
+import { ServiceError, isServiceError, toServiceError } from "../errors/errors.ts";
+import { NeonClient } from "../neon/client.ts";
+import {
+	configureCapabilities,
+	createClaimableProject,
+	createProjectTransferRequest,
+	deleteClaimableProject,
+	getProjectOwnerOrg,
+	mintProjectKey,
+	revokeProjectKey,
+} from "../neon/provisioning.ts";
+import { type Operation, matchOperation, projectResponse } from "../proxy/allowlist.ts";
+import {
+	type Registration,
+	type Sql,
+	createClaimAttempt,
+	createRegistration,
+	deleteRegistration,
+	findPendingClaimByCode,
+	findRegistration,
+	freezeIssuance,
+	getProjectKey,
+	getServiceCredentials,
+	isTokenRevoked,
+	latestClaimAttempt,
+	markProjectKeyRevoked,
+	recordCapabilityRequests,
+	recordDerivedCredential,
+	recordToken,
+	requireUsableRegistration,
+	revokeAllTokens,
+	revokeRegistration,
+	revokeToken,
+	setClaimAttemptState,
+	setClaimState,
+	startClaimTransfer,
+	storeProjectKey,
+	storeServiceCredential,
+} from "../store/store.ts";
+import { publicJwks } from "../tokens/keys.ts";
+import {
+	type SigningKey,
+	mintAccessToken,
+	mintAssertion,
+	verifyAccessToken,
+	verifyAssertion,
+} from "../tokens/tokens.ts";
+
+const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+
+const identityRequest = z
+	.object({
+		type: z.literal("anonymous"),
+		capabilities: z.array(z.string().min(1)).max(20).default([]),
+		source: z.string().min(1).max(100).default("raw_api"),
+	})
+	.strict();
+
+const tokenRequest = z.object({
+	grant_type: z.literal(JWT_BEARER_GRANT),
+	assertion: z.string().min(1),
+	resource: z.string().url().optional(),
+});
+
+const revokeRequest = z.object({
+	token: z.string().min(1),
+	token_type_hint: z.literal("access_token").optional(),
+});
+
+const claimTokenRequest = z
+	.object({
+		claim_token: z.string().min(1),
+	})
+	.strict();
+
+const claimCodeRequest = z.object({
+	user_code: z.string().min(1),
+});
+
+const connectionUriResponse = z.object({
+	uri: z.string().min(1),
+});
+
+export type AppDependencies = {
+	config: Config;
+	sql: Sql;
+	signingKey: SigningKey;
+	orgClient: NeonClient;
+};
+
+type Variables = {
+	requestId: string;
+};
+
+const parseJsonBody = async (request: Request): Promise<unknown> => {
+	try {
+		return await request.json();
+	} catch (cause) {
+		throw new ServiceError("invalid_request", "Request body must be valid JSON.", {
+			cause,
+		});
+	}
+};
+
+const parseFormBody = async (request: Request): Promise<Record<string, string>> => {
+	const parameters = new URLSearchParams(await request.text());
+	return Object.fromEntries(parameters.entries());
+};
+
+const parseWith = <Schema extends z.ZodTypeAny>(
+	schema: Schema,
+	value: unknown,
+	message: string,
+): z.output<Schema> => {
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) {
+		throw new ServiceError("invalid_request", message, {
+			details: parsed.error.flatten(),
+		});
+	}
+	return parsed.data;
+};
+
+const errorResponse = (
+	error: ServiceError,
+	requestId: string,
+	publicOrigin: string,
+): Response =>
+	new Response(JSON.stringify(error.toBody(requestId)), {
+		status: error.status,
+		headers: {
+			"content-type": "application/json",
+			"x-request-id": requestId,
+			...(error.status === 401
+				? {
+						"www-authenticate": `Bearer resource_metadata="${publicOrigin}/.well-known/oauth-protected-resource"`,
+					}
+				: {}),
+		},
+	});
+
+const bearerToken = (authorization: string | undefined): string => {
+	if (!authorization?.startsWith("Bearer ")) {
+		throw new ServiceError(
+			"unauthorized",
+			"Present an access token as `Authorization: Bearer <token>`.",
+		);
+	}
+	const token = authorization.slice("Bearer ".length).trim();
+	if (token.length === 0) {
+		throw new ServiceError("unauthorized", "Bearer token is empty.");
+	}
+	return token;
+};
+
+const authenticate = async (
+	authorization: string | undefined,
+	dependencies: AppDependencies,
+	allowDuringClaim = false,
+): Promise<{ registration: Registration; tokenScopes: Registration["scopes"] }> => {
+	const token = bearerToken(authorization);
+	const claims = await verifyAccessToken(dependencies.signingKey, token, {
+		issuer: dependencies.config.issuer,
+		audience: dependencies.config.audience,
+	});
+	if (await isTokenRevoked(dependencies.sql, claims.jti)) {
+		throw new ServiceError("unauthorized", "This access token was revoked.");
+	}
+	const registration = await requireUsableRegistration(
+		dependencies.sql,
+		claims.registration_id,
+	);
+	if (registration.neonProjectId !== claims.project_id) {
+		throw new ServiceError(
+			"unauthorized",
+			"Access token project does not match its registration.",
+		);
+	}
+	if (registration.issuanceFrozen && !allowDuringClaim) {
+		throw new ServiceError(
+			"claim_in_progress",
+			"This project is being claimed. Only claim-status polling is available.",
+			{ claimState: registration.claimState },
+		);
+	}
+	return { registration, tokenScopes: claims.scopes };
+};
+
+const requireMatchingProject = (registration: Registration, projectId: string): void => {
+	if (registration.neonProjectId !== projectId) {
+		throw new ServiceError(
+			"route_not_allowed",
+			"An agent token can act only on its own project.",
+		);
+	}
+};
+
+const projectClient = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+): Promise<NeonClient> => {
+	const stored = await getProjectKey(dependencies.sql, registration.id);
+	if (stored.revokedAt) {
+		throw new ServiceError("project_claimed", "The project credential was revoked.");
+	}
+	const apiKey = decryptProjectKey(stored, dependencies.config.keyEncryptionKey);
+	return new NeonClient({
+		apiKey,
+		baseUrl: dependencies.config.neonApiHost,
+	});
+};
+
+const cleanupProvisioning = async (
+	dependencies: AppDependencies,
+	input: {
+		registrationId: string;
+		projectId?: string;
+		keyId?: number;
+		original: unknown;
+	},
+): Promise<never> => {
+	const cleanupFailures: string[] = [];
+	try {
+		await deleteRegistration(dependencies.sql, input.registrationId);
+	} catch (error) {
+		cleanupFailures.push(`registration: ${toServiceError(error).message}`);
+	}
+	if (input.keyId !== undefined) {
+		try {
+			await revokeProjectKey(
+				dependencies.orgClient,
+				dependencies.config.neonOrgId,
+				input.keyId,
+			);
+		} catch (error) {
+			cleanupFailures.push(`project key: ${toServiceError(error).message}`);
+		}
+	}
+	if (input.projectId !== undefined) {
+		try {
+			await deleteClaimableProject(dependencies.orgClient, input.projectId);
+		} catch (error) {
+			cleanupFailures.push(`project: ${toServiceError(error).message}`);
+		}
+	}
+	if (cleanupFailures.length > 0) {
+		throw new ServiceError(
+			"internal_error",
+			"Provisioning failed and cleanup was incomplete.",
+			{
+				cause: input.original,
+				details: { cleanup_failures: cleanupFailures },
+			},
+		);
+	}
+	throw toServiceError(input.original);
+};
+
+const decodeServiceCredential = (
+	ciphertext: Buffer,
+	nonce: Buffer,
+	key: Buffer,
+): unknown => {
+	const value = decryptProjectKey({ ciphertext, nonce }, key);
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		throw new ServiceError(
+			"internal_error",
+			"Stored service credential is not valid JSON.",
+			{ cause },
+		);
+	}
+};
+
+const createClaimCode = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+) => {
+	if (registration.issuanceFrozen) {
+		throw new ServiceError(
+			"claim_in_progress",
+			"A claim ceremony is already in progress for this project.",
+			{ claimState: registration.claimState },
+		);
+	}
+	const previous = await latestClaimAttempt(dependencies.sql, registration.id);
+	if (previous?.state === "pending") {
+		await setClaimAttemptState(dependencies.sql, {
+			attemptId: previous.id,
+			state: "cancelled",
+		});
+	}
+	const code = generateClaimCode();
+	const expiresAt = new Date(
+		Date.now() + dependencies.config.claimAttemptTtlSeconds * 1000,
+	);
+	await createClaimAttempt(dependencies.sql, {
+		registrationId: registration.id,
+		userCodeHash: hashClaimCode(code),
+		expiresAt,
+	});
+	const verificationUri = `${dependencies.config.publicOrigin}/claim`;
+	return {
+		user_code: code,
+		verification_uri: verificationUri,
+		verification_uri_complete: `${verificationUri}?user_code=${encodeURIComponent(code)}`,
+		expires_in: dependencies.config.claimAttemptTtlSeconds,
+		interval: 5,
+	};
+};
+
+const getClaimStatus = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+) => {
+	const attempt = await latestClaimAttempt(dependencies.sql, registration.id);
+	if (!attempt) {
+		throw new ServiceError("not_found", "No claim attempt exists for this project.");
+	}
+	let state = attempt.state;
+	if (state === "pending" && attempt.expiresAt.getTime() <= Date.now()) {
+		await setClaimAttemptState(dependencies.sql, {
+			attemptId: attempt.id,
+			state: "expired",
+		});
+		state = "expired";
+	}
+	if (state === "pending" && attempt.transferRequestId) {
+		const ownerOrg = await getProjectOwnerOrg(
+			dependencies.orgClient,
+			registration.neonProjectId,
+		);
+		if (ownerOrg !== dependencies.config.neonOrgId) {
+			await setClaimAttemptState(dependencies.sql, {
+				attemptId: attempt.id,
+				state: "accepted",
+			});
+			await setClaimState(dependencies.sql, registration.id, "accepted", {
+				...(ownerOrg ? { claimedIntoOrg: ownerOrg } : {}),
+			});
+			state = "accepted";
+		}
+	}
+	return {
+		state,
+		expires_at: attempt.expiresAt.toISOString(),
+		reconciled: state === "reconciled",
+		...(state === "accepted"
+			? {
+					message:
+						"The project moved, but pre-claim credential teardown is not yet reconciled.",
+				}
+			: {}),
+	};
+};
+
+const authorizeProxyOperation = (
+	operation: Operation,
+	authenticated: {
+		registration: Registration;
+		tokenScopes: Registration["scopes"];
+	},
+): void => {
+	if (operation.capability && REQUIRES_CLAIM.includes(operation.capability)) {
+		throw new ServiceError(
+			"capability_requires_claim",
+			`${operation.capability} requires a claimed project.`,
+			{ claimState: authenticated.registration.claimState },
+		);
+	}
+	if (operation.scope && !hasScope(authenticated.tokenScopes, operation.scope)) {
+		throw new ServiceError(
+			"scope_insufficient",
+			`This operation requires ${operation.scope}.`,
+			{ requiredScope: operation.scope },
+		);
+	}
+};
+
+const proxyRequestBody = async (
+	request: Request,
+	operation: Operation,
+): Promise<unknown> => {
+	const rawBody =
+		request.method === "GET" || request.method === "DELETE" ? "" : await request.text();
+	let body: unknown;
+	if (rawBody.length > 0) {
+		try {
+			body = JSON.parse(rawBody);
+		} catch (cause) {
+			throw new ServiceError(
+				"invalid_request",
+				"Proxy request body must be valid JSON.",
+				{
+					cause,
+				},
+			);
+		}
+	}
+	if (!operation.body) {
+		if (body !== undefined) {
+			throw new ServiceError(
+				"invalid_request",
+				"This operation does not accept a request body.",
+			);
+		}
+		return undefined;
+	}
+	const parsed = operation.body.safeParse(body);
+	if (!parsed.success) {
+		throw new ServiceError(
+			"invalid_request",
+			"Proxy request body contains unsupported fields or values.",
+			{ details: parsed.error.flatten() },
+		);
+	}
+	return parsed.data;
+};
+
+const proxyManagementRequest = async (
+	request: Request,
+	dependencies: AppDependencies,
+	authenticated: {
+		registration: Registration;
+		tokenScopes: Registration["scopes"];
+	},
+): Promise<Response> => {
+	const url = new URL(request.url);
+	const apiPath = url.pathname.slice("/v1".length);
+	const matched = matchOperation(request.method, apiPath);
+	if (!matched) {
+		throw new ServiceError(
+			"route_not_allowed",
+			"This Neon Management API operation is not available before claim.",
+		);
+	}
+	const projectId = matched.params.projectId;
+	if (!projectId) {
+		throw new ServiceError(
+			"route_not_allowed",
+			"Allowed operation did not identify a project.",
+		);
+	}
+	requireMatchingProject(authenticated.registration, projectId);
+	authorizeProxyOperation(matched.operation, authenticated);
+	const body = await proxyRequestBody(request, matched.operation);
+	const client = await projectClient(dependencies, authenticated.registration);
+	const response = await client.request(request.method, `${apiPath}${url.search}`, body);
+	const data = matched.operation.project
+		? projectResponse(response.data, matched.operation.project)
+		: response.data;
+	return new Response(response.status === 204 ? null : JSON.stringify(data), {
+		status: response.status,
+		headers: {
+			...(response.status === 204 ? {} : { "content-type": "application/json" }),
+			...(response.requestId ? { "x-upstream-request-id": response.requestId } : {}),
+		},
+	});
+};
+
+export const createApp = (dependencies: AppDependencies) => {
+	const app = new Hono<{ Variables: Variables }>();
+
+	app.use("*", async (context, next) => {
+		context.set("requestId", context.req.header("x-request-id") ?? randomUUID());
+		await next();
+		context.header("x-request-id", context.get("requestId"));
+	});
+
+	app.get("/health", (context) =>
+		context.json({ status: "ok", service: "claimable-neon" }),
+	);
+	app.get("/auth.md", (context) =>
+		context.text(authMarkdown(dependencies.config.publicOrigin)),
+	);
+	app.get("/.well-known/oauth-protected-resource", (context) =>
+		context.json(protectedResourceMetadata(dependencies.config.publicOrigin)),
+	);
+	app.get("/.well-known/oauth-authorization-server", (context) =>
+		context.json(authorizationServerMetadata(dependencies.config.publicOrigin)),
+	);
+	app.get("/.well-known/jwks.json", (context) =>
+		context.json(publicJwks([dependencies.signingKey])),
+	);
+
+	app.post("/v1/agent/identity", async (context) => {
+		const request = parseWith(
+			identityRequest,
+			await parseJsonBody(context.req.raw),
+			"Anonymous registration request is not valid.",
+		);
+		const decisions = decideCapabilities(request.capabilities);
+		const capabilities = grantedCapabilities(decisions);
+		const scopes = scopesForCapabilities(capabilities);
+		const registrationId = `reg_${randomUUID()}`;
+		const expiresAt = new Date(Date.now() + dependencies.config.projectTtlSeconds * 1000);
+		let projectId: string | undefined;
+		let keyId: number | undefined;
+
+		try {
+			const project = await createClaimableProject(
+				dependencies.orgClient,
+				dependencies.config,
+			);
+			projectId = project.projectId;
+			const mintedKey = await mintProjectKey(
+				dependencies.orgClient,
+				dependencies.config,
+				project.projectId,
+			);
+			keyId = mintedKey.id;
+			const encryptedKey = encryptProjectKey(
+				mintedKey.key,
+				dependencies.config.keyEncryptionKey,
+			);
+			const projectScopedClient = new NeonClient({
+				apiKey: mintedKey.key,
+				baseUrl: dependencies.config.neonApiHost,
+			});
+			const serviceCredentials = await configureCapabilities(
+				projectScopedClient,
+				project,
+				capabilities,
+			);
+			const assertion = await mintAssertion(dependencies.signingKey, {
+				issuer: dependencies.config.issuer,
+				audience: dependencies.config.audience,
+				registrationId,
+				expiresAt,
+			});
+
+			await createRegistration(dependencies.sql, {
+				id: registrationId,
+				identityType: request.type,
+				neonProjectId: project.projectId,
+				neonOrgId: dependencies.config.neonOrgId,
+				neonBranchId: project.branchId,
+				databaseName: project.databaseName,
+				roleName: project.roleName,
+				scopes,
+				expiresAt,
+			});
+			await storeProjectKey(dependencies.sql, {
+				registrationId,
+				neonKeyId: mintedKey.id,
+				...encryptedKey,
+			});
+			for (const [capability, credential] of Object.entries(serviceCredentials)) {
+				if (
+					(capability !== "auth" && capability !== "data_api") ||
+					credential === undefined
+				) {
+					throw new ServiceError(
+						"internal_error",
+						"Provisioning produced an unknown service credential.",
+					);
+				}
+				const encrypted = encryptProjectKey(
+					JSON.stringify(credential),
+					dependencies.config.keyEncryptionKey,
+				);
+				await storeServiceCredential(dependencies.sql, {
+					registrationId,
+					capability,
+					...encrypted,
+				});
+			}
+			await recordToken(dependencies.sql, {
+				jti: assertion.jti,
+				registrationId,
+				kind: "assertion",
+				scopes: [],
+				expiresAt,
+			});
+			await recordCapabilityRequests(dependencies.sql, {
+				registrationId,
+				source: request.source,
+				decisions,
+			});
+
+			return context.json(
+				{
+					registration_id: registrationId,
+					identity_assertion: assertion.token,
+					claim_token: assertion.token,
+					assertion_expires: Math.floor(expiresAt.getTime() / 1000),
+					scopes,
+					project: {
+						id: project.projectId,
+						branch_id: project.branchId,
+						expires_at: expiresAt.toISOString(),
+					},
+					capabilities: decisions,
+					claim: {
+						start_url: `${dependencies.config.publicOrigin}/claim?registration_id=${encodeURIComponent(registrationId)}`,
+					},
+				},
+				201,
+			);
+		} catch (error) {
+			return cleanupProvisioning(dependencies, {
+				registrationId,
+				...(projectId ? { projectId } : {}),
+				...(keyId !== undefined ? { keyId } : {}),
+				original: error,
+			});
+		}
+	});
+
+	app.post("/v1/oauth2/token", async (context) => {
+		const request = parseWith(
+			tokenRequest,
+			await parseFormBody(context.req.raw),
+			"Token exchange request is not valid.",
+		);
+		if (
+			request.resource !== undefined &&
+			request.resource !== dependencies.config.audience
+		) {
+			throw new ServiceError(
+				"invalid_grant",
+				`Requested resource must be "${dependencies.config.audience}".`,
+			);
+		}
+		const assertion = await verifyAssertion(dependencies.signingKey, request.assertion, {
+			issuer: dependencies.config.issuer,
+			audience: dependencies.config.audience,
+		});
+		if (await isTokenRevoked(dependencies.sql, assertion.jti)) {
+			throw new ServiceError("invalid_grant", "Identity assertion was revoked.");
+		}
+		const registration = await requireUsableRegistration(
+			dependencies.sql,
+			assertion.registration_id,
+		);
+		if (registration.issuanceFrozen) {
+			throw new ServiceError(
+				"invalid_grant",
+				"New access-token issuance is frozen while this project is being claimed.",
+			);
+		}
+		const access = await mintAccessToken(dependencies.signingKey, {
+			issuer: dependencies.config.issuer,
+			audience: dependencies.config.audience,
+			registrationId: registration.id,
+			projectId: registration.neonProjectId,
+			scopes: registration.scopes,
+			notAfter: registration.expiresAt,
+		});
+		await recordToken(dependencies.sql, {
+			jti: access.jti,
+			registrationId: registration.id,
+			kind: "access",
+			scopes: registration.scopes,
+			expiresAt: access.expiresAt,
+		});
+		return context.json({
+			access_token: access.token,
+			token_type: "Bearer",
+			expires_in: access.claims.exp - access.claims.iat,
+			scope: access.claims.scope,
+		});
+	});
+
+	app.post("/v1/oauth2/revoke", async (context) => {
+		const request = parseWith(
+			revokeRequest,
+			await parseFormBody(context.req.raw),
+			"Token revocation request is not valid.",
+		);
+		try {
+			const claims = await verifyAccessToken(dependencies.signingKey, request.token, {
+				issuer: dependencies.config.issuer,
+				audience: dependencies.config.audience,
+			});
+			await revokeToken(dependencies.sql, claims.jti);
+		} catch (error) {
+			if (
+				!isServiceError(error) ||
+				(error.code !== "unauthorized" &&
+					error.code !== "token_expired" &&
+					error.code !== "invalid_grant")
+			) {
+				throw error;
+			}
+		}
+		return context.body(null, 200);
+	});
+
+	app.post("/v1/agent/identity/claim", async (context) => {
+		const request = parseWith(
+			claimTokenRequest,
+			await parseJsonBody(context.req.raw),
+			"Claim request is not valid.",
+		);
+		const assertion = await verifyAssertion(
+			dependencies.signingKey,
+			request.claim_token,
+			{
+				issuer: dependencies.config.issuer,
+				audience: dependencies.config.audience,
+			},
+		);
+		if (await isTokenRevoked(dependencies.sql, assertion.jti)) {
+			throw new ServiceError("invalid_grant", "Claim token was revoked.");
+		}
+		const registration = await requireUsableRegistration(
+			dependencies.sql,
+			assertion.registration_id,
+		);
+		return context.json(await createClaimCode(dependencies, registration));
+	});
+
+	app.post("/v1/databases/:projectId/claim", async (context) => {
+		const authenticated = await authenticate(
+			context.req.header("authorization"),
+			dependencies,
+		);
+		requireMatchingProject(authenticated.registration, context.req.param("projectId"));
+		return context.json(await createClaimCode(dependencies, authenticated.registration));
+	});
+
+	app.get("/v1/databases/:projectId/claim", async (context) => {
+		const authenticated = await authenticate(
+			context.req.header("authorization"),
+			dependencies,
+			true,
+		);
+		const registration = authenticated.registration;
+		requireMatchingProject(registration, context.req.param("projectId"));
+		return context.json(await getClaimStatus(dependencies, registration));
+	});
+
+	app.get("/claim", (context) => {
+		const candidate = normalizeClaimCode(context.req.query("user_code") ?? "");
+		const prefill = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/.test(candidate)
+			? `${candidate.slice(0, 4)}-${candidate.slice(4)}`
+			: "";
+		return context.html(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claim a Neon project</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { display: grid; min-height: 100vh; margin: 0; place-items: center; }
+    main { width: min(28rem, calc(100% - 2rem)); }
+    input, button { box-sizing: border-box; font: inherit; padding: .8rem 1rem; width: 100%; }
+    input { margin: .5rem 0 1rem; letter-spacing: .12em; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Claim your Neon project</h1>
+    <p>Enter the code shown by the agent. You will then sign in to Neon and choose the destination organization.</p>
+    <form method="post" action="/claim">
+      <label for="user_code">Claim code</label>
+      <input id="user_code" name="user_code" value="${prefill}" autocomplete="one-time-code" required>
+      <button type="submit">Continue to Neon</button>
+    </form>
+  </main>
+</body>
+</html>`);
+	});
+
+	app.post("/claim", async (context) => {
+		const request = parseWith(
+			claimCodeRequest,
+			await parseFormBody(context.req.raw),
+			"Claim code is required.",
+		);
+		const normalized = normalizeClaimCode(request.user_code);
+		if (!/^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/.test(normalized)) {
+			throw new ServiceError("invalid_grant", "Claim code is not valid.");
+		}
+		const attempt = await findPendingClaimByCode(
+			dependencies.sql,
+			hashClaimCode(normalized),
+		);
+		if (!attempt) {
+			throw new ServiceError(
+				"invalid_grant",
+				"Claim code is unknown, expired, or already used.",
+			);
+		}
+		if (attempt.expiresAt.getTime() <= Date.now()) {
+			await setClaimAttemptState(dependencies.sql, {
+				attemptId: attempt.id,
+				state: "expired",
+			});
+			throw new ServiceError("invalid_grant", "Claim code has expired.");
+		}
+		if (attempt.transferRequestId) {
+			throw new ServiceError("invalid_grant", "This claim code was already redeemed.");
+		}
+		const registration = await findRegistration(dependencies.sql, attempt.registrationId);
+		if (!registration) {
+			throw new ServiceError("invalid_grant", "Claim registration no longer exists.");
+		}
+		await requireUsableRegistration(dependencies.sql, registration.id);
+		const ttlSeconds = Math.max(
+			1,
+			Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
+		);
+		const transfer = await createProjectTransferRequest(
+			dependencies.orgClient,
+			registration.neonProjectId,
+			ttlSeconds,
+		);
+		await startClaimTransfer(dependencies.sql, {
+			attemptId: attempt.id,
+			transferRequestId: transfer.id,
+		});
+		await freezeIssuance(dependencies.sql, registration.id);
+		await setClaimState(dependencies.sql, registration.id, "pending");
+		const destination = new URL(dependencies.config.consoleClaimUrl);
+		destination.searchParams.set("p", registration.neonProjectId);
+		destination.searchParams.set("tr", transfer.id);
+		return context.redirect(destination.toString(), 303);
+	});
+
+	app.get("/v1/databases/:projectId", async (context) => {
+		const authenticated = await authenticate(
+			context.req.header("authorization"),
+			dependencies,
+		);
+		const projectId = context.req.param("projectId");
+		requireMatchingProject(authenticated.registration, projectId);
+		const client = await projectClient(dependencies, authenticated.registration);
+		const response = await client.get(`/projects/${encodeURIComponent(projectId)}`);
+		return context.json(
+			projectResponse(response.data, [
+				"id",
+				"name",
+				"region_id",
+				"created_at",
+				"pg_version",
+				"branch_logical_size_limit_bytes",
+			]),
+		);
+	});
+
+	app.get("/v1/databases/:projectId/credentials", async (context) => {
+		const authenticated = await authenticate(
+			context.req.header("authorization"),
+			dependencies,
+		);
+		if (!hasScope(authenticated.tokenScopes, "postgres.read")) {
+			throw new ServiceError(
+				"scope_insufficient",
+				"Fetching database credentials requires postgres.read.",
+				{ requiredScope: "postgres.read" },
+			);
+		}
+		const projectId = context.req.param("projectId");
+		requireMatchingProject(authenticated.registration, projectId);
+		const registration = authenticated.registration;
+		const client = await projectClient(dependencies, registration);
+		const query = new URLSearchParams({
+			branch_id: registration.neonBranchId,
+			database_name: registration.databaseName,
+			role_name: registration.roleName,
+			pooled: "true",
+		});
+		const response = await client.get(
+			`/projects/${encodeURIComponent(projectId)}/connection_uri?${query.toString()}`,
+		);
+		const connection = parseWith(
+			connectionUriResponse,
+			response.data,
+			"Neon returned an invalid connection URI response.",
+		);
+		await recordDerivedCredential(dependencies.sql, {
+			registrationId: registration.id,
+			kind: "connection_uri",
+			branchId: registration.neonBranchId,
+			scopes: ["postgres.read", "postgres.write"],
+			expiresAt: registration.expiresAt,
+		});
+		const storedServices = await getServiceCredentials(dependencies.sql, registration.id);
+		const services: Record<string, unknown> = {};
+		for (const stored of storedServices) {
+			services[stored.capability] = decodeServiceCredential(
+				stored.ciphertext,
+				stored.nonce,
+				dependencies.config.keyEncryptionKey,
+			);
+		}
+		return context.json({
+			project_id: projectId,
+			branch_id: registration.neonBranchId,
+			database_url: connection.uri,
+			expires_at: registration.expiresAt.toISOString(),
+			services,
+		});
+	});
+
+	app.delete("/v1/databases/:projectId", async (context) => {
+		const authenticated = await authenticate(
+			context.req.header("authorization"),
+			dependencies,
+		);
+		if (!hasScope(authenticated.tokenScopes, "postgres.write")) {
+			throw new ServiceError(
+				"scope_insufficient",
+				"Deleting a claimable database requires postgres.write.",
+				{ requiredScope: "postgres.write" },
+			);
+		}
+		const projectId = context.req.param("projectId");
+		const registration = authenticated.registration;
+		requireMatchingProject(registration, projectId);
+		const storedKey = await getProjectKey(dependencies.sql, registration.id);
+		await deleteClaimableProject(dependencies.orgClient, projectId);
+		await revokeProjectKey(
+			dependencies.orgClient,
+			dependencies.config.neonOrgId,
+			storedKey.neonKeyId,
+		);
+		await revokeAllTokens(dependencies.sql, registration.id);
+		await markProjectKeyRevoked(dependencies.sql, registration.id);
+		await revokeRegistration(dependencies.sql, registration.id, "deleted_by_agent");
+		return context.body(null, 204);
+	});
+
+	app.all("/v1/projects/*", async (context) => {
+		const authenticated = await authenticate(
+			context.req.header("authorization"),
+			dependencies,
+		);
+		return proxyManagementRequest(context.req.raw, dependencies, authenticated);
+	});
+
+	app.notFound((context) => {
+		const error = new ServiceError("not_found", "No route exists at this path.");
+		return errorResponse(
+			error,
+			context.get("requestId"),
+			dependencies.config.publicOrigin,
+		);
+	});
+
+	app.onError((error, context) => {
+		const serviceError = toServiceError(error);
+		return errorResponse(
+			serviceError,
+			context.get("requestId") ?? randomUUID(),
+			dependencies.config.publicOrigin,
+		);
+	});
+
+	return app;
+};

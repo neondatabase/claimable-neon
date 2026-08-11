@@ -12,24 +12,32 @@ target shape.
 | Scope vocabulary and the clamp onto Neon's credential scopes | `lib/capabilities/scopes.ts` | `test/capabilities.test.ts` |
 | Error envelope with provenance and retryability | `lib/errors/errors.ts` | covered indirectly |
 | Management API allowlist: routes, per-operation body schemas, path canonicalization, response projection | `lib/proxy/allowlist.ts` | `test/allowlist.test.ts` |
-| Token minting and verification, assertion vs access separation | `lib/tokens/tokens.ts` | pending |
-| Signing key load/import/export | `lib/tokens/keys.ts` | pending |
-| Store schema and queries | `lib/store/` | pending (needs a database) |
-| Configuration validation | `lib/config/config.ts` | pending |
-| Internal Neon Management API client | `lib/neon/client.ts` | pending |
+| Token minting and verification, assertion vs access separation | `lib/tokens/tokens.ts` | `test/tokens.test.ts` |
+| Signing key load/import/export | `lib/tokens/keys.ts` | `test/tokens.test.ts` |
+| Project-key encryption at rest | `lib/crypto/project-keys.ts` | `test/project-keys.test.ts` |
+| Configuration validation and localhost-only user-key guard | `lib/config/config.ts` | `test/config.test.ts` |
+| auth.md and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
+| Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
+| Real project provisioning, operation readiness, project-scoped key minting, Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
+| Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
+| Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
 
 ## Not yet implemented
 
-- `POST /v1/agent/identity`: provision a project and issue a registration
-- `POST /v1/oauth2/token`, `POST /v1/oauth2/revoke`
-- The discovery documents and `WWW-Authenticate` on 401
-- `GET /v1/databases/{id}` and `/credentials`
-- The claim endpoints and the transfer ceremony
-- The proxy request handler that ties the allowlist to the Neon client
-- Derived-credential teardown on claim
 - Rate limiting and quotas
-- The Hono app and server entry point
-- e2e suite
+- Automatic deletion of expired unclaimed projects
+- Derived-credential teardown and the transition from `accepted` to `reconciled`
+- A human-completed end-to-end test of the project-transfer claim ceremony
+- Live provisioning coverage for Managed Better Auth
+- Neon Function deployment
+
+## Deployment blocker
+
+Neon's endpoint for minting a project-scoped API key rejects organization API keys and requires a
+personal API key. Production therefore needs a dedicated Neon service user whose only organization
+is the organization that holds unclaimed projects. The local environment uses a dedicated,
+revocable personal key under `NEON_API_KEY_KIND=user_local`; configuration validation refuses that
+mode on any non-localhost origin.
 
 ## Decided while reviewing the first contract draft
 

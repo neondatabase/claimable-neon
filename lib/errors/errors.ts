@@ -23,8 +23,12 @@ export const ERROR_CODES = [
 	"project_expired",
 	/** Already claimed. Authoritative: prune and use an account credential. */
 	"project_claimed",
+	/** A human started the claim ceremony; only claim-status polling remains available. */
+	"claim_in_progress",
 	/** The route or the request shape is not part of the proxied surface. */
 	"route_not_allowed",
+	/** No public route exists at this path. */
+	"not_found",
 	/** Malformed request: bad JSON, failed validation, unknown field. */
 	"invalid_request",
 	/** No credential presented, or it did not verify. */
@@ -62,7 +66,9 @@ const STATUS_FOR_CODE: Record<ErrorCode, number> = {
 	invalid_grant: 400,
 	project_expired: 410,
 	project_claimed: 409,
+	claim_in_progress: 409,
 	route_not_allowed: 403,
+	not_found: 404,
 	invalid_request: 400,
 	unauthorized: 401,
 	upstream_error: 502,
@@ -87,6 +93,7 @@ export type ServiceErrorOptions = {
 	claimState?: string;
 	details?: unknown;
 	origin?: ErrorOrigin;
+	retryable?: boolean;
 	cause?: unknown;
 };
 
@@ -103,7 +110,7 @@ export class ServiceError extends Error {
 		this.code = code;
 		this.status = STATUS_FOR_CODE[code];
 		this.origin = options.origin ?? (code === "upstream_error" ? "upstream" : "proxy");
-		this.retryable = RETRYABLE.has(code);
+		this.retryable = options.retryable ?? RETRYABLE.has(code);
 		this.options = options;
 	}
 
