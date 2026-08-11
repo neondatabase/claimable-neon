@@ -1,7 +1,8 @@
 # Agent instructions
 
-Read `docs/status.md` before answering any question about what this service does. The README
-describes the target API; `status.md` says what actually exists.
+Read [`docs/status.md`](docs/status.md) before answering any question about what this service
+does. The README describes the target API; `status.md` says what actually exists. Follow
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, architecture, testing, and pre-commit checks.
 
 ## What this is
 
@@ -46,15 +47,3 @@ or an early return before the insert. The record is the product requirement.
 - Errors are `ServiceError` with a code from `lib/errors/errors.ts`. Never throw a bare `Error`
   across a module boundary, and never swallow one.
 
-## Before committing
-
-```bash
-bun run typecheck && bun run test && bun run lint
-```
-
-The lockfile must not reference `npm-proxy.cloud.databricks.com`; that host does not resolve off a
-Databricks machine and a committed reference breaks CI for everyone else.
-
-```bash
-rg -c "npm-proxy\.cloud\.databricks\.com" bun.lock   # must be 0
-```

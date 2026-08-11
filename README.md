@@ -160,6 +160,9 @@ The project lifetime is policy rather than protocol: it is 72 hours today, expos
 
 ## Development
 
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the repository structure, security invariants,
+end-to-end test requirements, and contribution workflow.
+
 ```bash
 bun install
 bun run test          # unit and contract tests, no credentials needed
