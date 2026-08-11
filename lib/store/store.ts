@@ -375,6 +375,19 @@ export const revokeAllTokens = async (
 	return rows.length;
 };
 
+export const revokeAccessTokens = async (
+	sql: Sql,
+	registrationId: string,
+): Promise<number> => {
+	const rows = await sql`
+		update tokens set revoked_at = coalesce(revoked_at, now())
+		where registration_id = ${registrationId}
+			and kind = 'access'
+			and revoked_at is null
+		returning jti`;
+	return rows.length;
+};
+
 // --- derived credentials ------------------------------------------------------------------
 
 export type DerivedCredentialKind =
@@ -610,4 +623,32 @@ export const setClaimAttemptState = async (
 				else completed_at
 			end
 		where id = ${input.attemptId}`;
+};
+
+export const completeClaimReconciliation = async (
+	sql: Sql,
+	input: {
+		registrationId: string;
+		attemptId: number;
+		claimedIntoOrg?: string;
+	},
+): Promise<void> => {
+	await sql.begin(async (transaction) => {
+		await transaction`
+			update tokens
+			set revoked_at = coalesce(revoked_at, now())
+			where registration_id = ${input.registrationId}
+				and revoked_at is null`;
+		await transaction`
+			update registrations
+			set claim_state = 'reconciled',
+				claimed_at = coalesce(claimed_at, now()),
+				claimed_into_org = coalesce(${input.claimedIntoOrg ?? null}, claimed_into_org)
+			where id = ${input.registrationId}`;
+		await transaction`
+			update claim_attempts
+			set state = 'reconciled',
+				completed_at = coalesce(completed_at, now())
+			where id = ${input.attemptId}`;
+	});
 };

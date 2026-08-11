@@ -79,10 +79,28 @@ In another terminal:
 bun run test:e2e
 ```
 
-The suite provisions a real project, uses it, and deletes it. A failed cleanup fails the test. After
-a failed run, verify that no project with the `claimable-local-` prefix remains before retrying.
-Do not add mocks for Neon behavior; use pure tests for the functional core and real infrastructure
-for I/O behavior.
+The pre-claim suite provisions a real project, uses Postgres, Managed Better Auth, Data API, and
+the scoped management proxy, then deletes the project.
+
+The full claim-ceremony test also starts from the website `llms.txt`, follows the Claimable Postgres
+reference to `auth.md`, accepts the project transfer, waits for reconciliation, and verifies that
+the pre-claim database password, service endpoints, assertion, and access tokens no longer work.
+It requires two distinct Neon organizations. The existing Testing organization can remain the
+source; create one dedicated Claimable Neon E2E recipient organization:
+
+- `NEON_ORG_ID`: source organization that holds unclaimed projects
+- `CLAIMABLE_E2E_RECIPIENT_ORG_ID`: different destination organization
+- `CLAIMABLE_E2E_SOURCE_API_KEY`: optional source cleanup override; defaults to `NEON_API_KEY`
+- `CLAIMABLE_E2E_RECIPIENT_API_KEY`: optional recipient override; defaults to `NEON_API_KEY`
+- `CLAIMABLE_E2E_WEBSITE_ORIGIN`: local website origin, normally `http://localhost:3000`
+
+Start the website with `CLAIMABLE_NEON_ORIGIN=http://localhost:8787`, then run `bun run test:e2e`.
+The full ceremony is skipped when its website or recipient variables are absent.
+
+Every test deletes its project from the organization that owns it at cleanup time. A failed cleanup
+fails the test. After a failed run, verify that no project with the `claimable-local-` prefix
+remains in either test organization before retrying. Do not add mocks for Neon behavior; use pure
+tests for the functional core and real infrastructure for I/O behavior.
 
 ## Before committing
 

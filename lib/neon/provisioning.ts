@@ -32,6 +32,9 @@ const createProjectResponse = z.object({
 });
 
 const operationResponse = z.object({ operation });
+const roleOperationsResponse = z.object({
+	operations: z.array(operation),
+});
 
 const apiKeyResponse = z.object({
 	id: z.number().int(),
@@ -340,3 +343,57 @@ export const getProjectOwnerOrg = async (
 		throw error;
 	}
 };
+
+const ignoreMissingIntegration = async (
+	operation: () => Promise<unknown>,
+): Promise<void> => {
+	try {
+		await operation();
+	} catch (error) {
+		if (
+			error instanceof ServiceError &&
+			error.code === "upstream_error" &&
+			error.options.upstreamStatus === 404
+		) {
+			return;
+		}
+		throw error;
+	}
+};
+
+export const resetProjectRolePassword = async (
+	client: NeonClient,
+	project: Pick<ProvisionedProject, "projectId" | "branchId" | "roleName">,
+): Promise<void> => {
+	const response = await client.post(
+		`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/roles/${pathSegment(project.roleName)}/reset_password`,
+	);
+	const reset = parseUpstream(
+		roleOperationsResponse,
+		response.data,
+		"resetting the claimable database role password",
+	);
+	await waitForProjectOperations(client, project.projectId, reset.operations);
+};
+
+export const disableProjectDataApi = async (
+	client: NeonClient,
+	project: Pick<ProvisionedProject, "projectId" | "branchId" | "databaseName">,
+): Promise<void> =>
+	ignoreMissingIntegration(() =>
+		client.delete(
+			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/data-api/${pathSegment(project.databaseName)}`,
+		),
+	);
+
+export const disableProjectAuth = async (
+	client: NeonClient,
+	project: Pick<ProvisionedProject, "projectId" | "branchId">,
+): Promise<void> =>
+	ignoreMissingIntegration(() =>
+		client.request(
+			"DELETE",
+			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/auth`,
+			{ delete_data: false },
+		),
+	);

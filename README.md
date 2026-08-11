@@ -42,7 +42,7 @@ read a project can also delete it. This service enforces the finer capability bo
 |---|---|---|
 | `postgres` | always | Lakebase Postgres is always provisioned. |
 | `data_api` | on request | Neon Data API. Off by default. |
-| `auth` | on request | Managed Better Auth. Off by default. Ownership transfers separately; see [Known open questions](docs/status.md#known-open-questions). |
+| `auth` | on request | Managed Better Auth. Off by default. Disabled before project transfer so pre-claim Auth tokens do not survive; the recipient can re-enable it. |
 | `storage` | no | Neon Object Storage requires a claim. The S3 data plane bypasses this service, and Neon does not expose the storage quota needed to cap pre-claim usage. |
 | `functions` | no | Deployment requires a claim. `neon dev` can still run declared functions locally against the claimable database. |
 | `ai_gateway` | no | Neon AI Gateway requires a claim. |
@@ -84,17 +84,14 @@ POST /v1/agent/identity
     { "capability": "data_api",  "granted": true },
     { "capability": "storage",  "granted": false, "reason": "requires_claim",
       "message": "Object storage is only available on a claimed project…" }
-  ],
-  "claim": { "start_url": "https://claimable.neon.tech/claim/reg_…" }
+  ]
 }
 ```
 
-Registration returns a link to hand a human, and **nothing that can complete a claim**. It does
-not create a transfer request and does not mint a `user_code`. That is deliberate: a transfer
-request created at provisioning time would remain open for the project's lifetime. Returning its
-ID at registration would also make possession of the registration response equivalent to
-possession of the project. `POST /v1/databases/{id}/claim` creates a transfer request for one
-claim attempt, with its own expiry.
+Registration does not create a transfer request or mint a `user_code`. That is deliberate: a
+transfer request created at provisioning time would remain open for the project's lifetime.
+`POST /v1/databases/{id}/claim` creates a short-lived human code. Redeeming that code removes
+pre-claim access, creates the transfer request, and redirects the human to Neon.
 
 ```http
 POST /v1/oauth2/token
@@ -108,18 +105,14 @@ Resources, all bearer-authenticated:
 ```http
 GET    /v1/databases/{id}
 GET    /v1/databases/{id}/credentials
-POST   /v1/databases/{id}/claim     # creates the transfer request, returns url + user_code
-GET    /v1/databases/{id}/claim     # poll: pending | accepted | reconciled | failed_plan | expired
+POST   /v1/databases/{id}/claim     # returns verification_uri_complete + user_code
+GET    /v1/databases/{id}/claim     # poll: pending | accepted | reconciled | expired
 DELETE /v1/databases/{id}
 ```
 
-Only `reconciled` means the claim finished. `accepted` means the project moved but teardown of the
-pre-claim credentials has not been confirmed, and treating that as done is how a caller ends up
-trusting a database whose old secrets still work.
-
-`failed_plan` carries the `reasons[]` array from Neon's `406`: the recipient's plan cannot own the
-project. It is a normal outcome, not an internal error, and it surfaces after the human has
-already signed up, so it must be rendered rather than swallowed.
+Only `reconciled` means the claim finished. Pre-claim database and service access is removed before
+the transfer URL is exposed. `accepted` means the service observed that the project moved; the same
+status poll then revokes the identity assertion and records `reconciled`.
 
 ### CLI and `neon.ts`
 

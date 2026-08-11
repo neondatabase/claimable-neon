@@ -174,17 +174,13 @@ describe("request body validation", () => {
 		).toBe(false);
 	});
 
-	it("requires at least one scope when minting a credential", () => {
-		const schema = bodyFor("POST", "/projects/:projectId/branches/:branchId/credentials");
-		expect(schema?.safeParse({ scopes: [] }).success).toBe(false);
-		expect(schema?.safeParse({ scopes: ["storage:read"] }).success).toBe(true);
-	});
-
-	it("does not let a credential be minted for another principal type", () => {
-		const schema = bodyFor("POST", "/projects/:projectId/branches/:branchId/credentials");
+	it("does not mint or revoke branch credentials before claim", () => {
 		expect(
-			schema?.safeParse({ scopes: ["storage:read"], principal_type: "function" }).success,
-		).toBe(false);
+			matchOperation("POST", "/projects/project/branches/branch/credentials"),
+		).toBeNull();
+		expect(
+			matchOperation("DELETE", "/projects/project/branches/branch/credentials/token"),
+		).toBeNull();
 	});
 });
 
@@ -194,14 +190,9 @@ describe("operation table invariants", () => {
 		expect(new Set(keys).size).toBe(keys.length);
 	});
 
-	it("never allows a write without a scope requirement, except credential handling", () => {
-		const credentialPaths = [
-			"/projects/:projectId/branches/:branchId/credentials",
-			"/projects/:projectId/branches/:branchId/credentials/:tokenId",
-		];
+	it("never allows a write without a scope requirement", () => {
 		for (const op of OPERATIONS) {
 			if (op.method === "GET") continue;
-			if (credentialPaths.includes(op.pattern)) continue;
 			expect(op.scope, `${op.method} ${op.pattern}`).not.toBeNull();
 		}
 	});

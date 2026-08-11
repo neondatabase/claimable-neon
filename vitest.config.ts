@@ -18,8 +18,8 @@ export default defineConfig({
 					// ones where our understanding of Neon's API is wrong, and a mock encodes
 					// that same misunderstanding. Provisioning a real project and waiting for a
 					// compute is slow, hence the timeouts.
-					testTimeout: 120_000,
-					hookTimeout: 180_000,
+					testTimeout: 240_000,
+					hookTimeout: 300_000,
 					// Provisioning writes to a shared organization; parallel files would race
 					// on project quotas and make a real limit look like flakiness.
 					fileParallelism: false,

@@ -9,6 +9,7 @@ import {
 } from "../capabilities/capabilities.ts";
 import { hasScope, scopesForCapabilities } from "../capabilities/scopes.ts";
 import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
+import { prepareClaimTransfer, reconcileAcceptedClaim } from "../claims/reconcile.ts";
 import type { Config } from "../config/config.ts";
 import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts";
 import {
@@ -82,7 +83,7 @@ const tokenRequest = z.object({
 
 const revokeRequest = z.object({
 	token: z.string().min(1),
-	token_type_hint: z.literal("access_token").optional(),
+	token_type_hint: z.enum(["access_token", "identity_assertion"]).optional(),
 });
 
 const claimTokenRequest = z
@@ -157,6 +158,52 @@ const errorResponse = (
 		},
 	});
 
+const escapeHtml = (value: string): string =>
+	value.replace(/[&<>"']/g, (character) => {
+		const entities: Record<string, string> = {
+			"&": "&amp;",
+			"<": "&lt;",
+			">": "&gt;",
+			'"': "&quot;",
+			"'": "&#39;",
+		};
+		return entities[character] ?? "";
+	});
+
+const claimErrorResponse = (error: ServiceError, requestId: string): Response =>
+	new Response(
+		`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claim could not continue</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { display: grid; min-height: 100vh; margin: 0; place-items: center; }
+    main { width: min(28rem, calc(100% - 2rem)); }
+    a { color: #00e599; }
+    code { font-size: .85em; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Claim could not continue</h1>
+    <p>${escapeHtml(error.message)}</p>
+    <p><a href="/claim">Enter another claim code</a></p>
+    <p><small>Request ID: <code>${escapeHtml(requestId)}</code></small></p>
+  </main>
+</body>
+</html>`,
+		{
+			status: error.status,
+			headers: {
+				"content-type": "text/html; charset=UTF-8",
+				"x-request-id": requestId,
+			},
+		},
+	);
+
 const bearerToken = (authorization: string | undefined): string => {
 	if (!authorization?.startsWith("Bearer ")) {
 		throw new ServiceError(
@@ -169,6 +216,38 @@ const bearerToken = (authorization: string | undefined): string => {
 		throw new ServiceError("unauthorized", "Bearer token is empty.");
 	}
 	return token;
+};
+
+const isUnverifiableRevocationToken = (error: unknown): boolean =>
+	isServiceError(error) &&
+	(error.code === "unauthorized" ||
+		error.code === "token_expired" ||
+		error.code === "invalid_grant");
+
+const revocationJti = async (
+	dependencies: AppDependencies,
+	token: string,
+): Promise<string | null> => {
+	try {
+		const claims = await verifyAccessToken(dependencies.signingKey, token, {
+			issuer: dependencies.config.issuer,
+			audience: dependencies.config.audience,
+		});
+		return claims.jti;
+	} catch (error) {
+		if (!isUnverifiableRevocationToken(error)) throw error;
+	}
+
+	try {
+		const claims = await verifyAssertion(dependencies.signingKey, token, {
+			issuer: dependencies.config.issuer,
+			audience: dependencies.config.audience,
+		});
+		return claims.jti;
+	} catch (error) {
+		if (!isUnverifiableRevocationToken(error)) throw error;
+		return null;
+	}
 };
 
 const authenticate = async (
@@ -337,6 +416,7 @@ const getClaimStatus = async (
 		throw new ServiceError("not_found", "No claim attempt exists for this project.");
 	}
 	let state = attempt.state;
+	let claimedIntoOrg = registration.claimedIntoOrg;
 	if (state === "pending" && attempt.expiresAt.getTime() <= Date.now()) {
 		await setClaimAttemptState(dependencies.sql, {
 			attemptId: attempt.id,
@@ -350,6 +430,7 @@ const getClaimStatus = async (
 			registration.neonProjectId,
 		);
 		if (ownerOrg !== dependencies.config.neonOrgId) {
+			claimedIntoOrg = ownerOrg;
 			await setClaimAttemptState(dependencies.sql, {
 				attemptId: attempt.id,
 				state: "accepted",
@@ -360,16 +441,14 @@ const getClaimStatus = async (
 			state = "accepted";
 		}
 	}
+	if (state === "accepted") {
+		await reconcileAcceptedClaim(dependencies, registration, attempt, claimedIntoOrg);
+		state = "reconciled";
+	}
 	return {
 		state,
 		expires_at: attempt.expiresAt.toISOString(),
 		reconciled: state === "reconciled",
-		...(state === "accepted"
-			? {
-					message:
-						"The project moved, but pre-claim credential teardown is not yet reconciled.",
-				}
-			: {}),
 	};
 };
 
@@ -620,9 +699,6 @@ export const createApp = (dependencies: AppDependencies) => {
 						expires_at: expiresAt.toISOString(),
 					},
 					capabilities: decisions,
-					claim: {
-						start_url: `${dependencies.config.publicOrigin}/claim?registration_id=${encodeURIComponent(registrationId)}`,
-					},
 				},
 				201,
 			);
@@ -698,22 +774,8 @@ export const createApp = (dependencies: AppDependencies) => {
 			await parseFormBody(context.req.raw),
 			"Token revocation request is not valid.",
 		);
-		try {
-			const claims = await verifyAccessToken(dependencies.signingKey, request.token, {
-				issuer: dependencies.config.issuer,
-				audience: dependencies.config.audience,
-			});
-			await revokeToken(dependencies.sql, claims.jti);
-		} catch (error) {
-			if (
-				!isServiceError(error) ||
-				(error.code !== "unauthorized" &&
-					error.code !== "token_expired" &&
-					error.code !== "invalid_grant")
-			) {
-				throw error;
-			}
-		}
+		const jti = await revocationJti(dependencies, request.token);
+		if (jti) await revokeToken(dependencies.sql, jti);
 		return context.body(null, 200);
 	});
 
@@ -821,32 +883,34 @@ export const createApp = (dependencies: AppDependencies) => {
 			});
 			throw new ServiceError("invalid_grant", "Claim code has expired.");
 		}
-		if (attempt.transferRequestId) {
-			throw new ServiceError("invalid_grant", "This claim code was already redeemed.");
-		}
 		const registration = await findRegistration(dependencies.sql, attempt.registrationId);
 		if (!registration) {
 			throw new ServiceError("invalid_grant", "Claim registration no longer exists.");
 		}
 		await requireUsableRegistration(dependencies.sql, registration.id);
-		const ttlSeconds = Math.max(
-			1,
-			Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
-		);
-		const transfer = await createProjectTransferRequest(
-			dependencies.orgClient,
-			registration.neonProjectId,
-			ttlSeconds,
-		);
-		await startClaimTransfer(dependencies.sql, {
-			attemptId: attempt.id,
-			transferRequestId: transfer.id,
-		});
+		let transferRequestId = attempt.transferRequestId;
+		if (!transferRequestId) {
+			const ttlSeconds = Math.max(
+				1,
+				Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
+			);
+			const transfer = await createProjectTransferRequest(
+				dependencies.orgClient,
+				registration.neonProjectId,
+				ttlSeconds,
+			);
+			transferRequestId = transfer.id;
+			await startClaimTransfer(dependencies.sql, {
+				attemptId: attempt.id,
+				transferRequestId,
+			});
+		}
 		await freezeIssuance(dependencies.sql, registration.id);
 		await setClaimState(dependencies.sql, registration.id, "pending");
+		await prepareClaimTransfer(dependencies, registration);
 		const destination = new URL(dependencies.config.consoleClaimUrl);
 		destination.searchParams.set("p", registration.neonProjectId);
-		destination.searchParams.set("tr", transfer.id);
+		destination.searchParams.set("tr", transferRequestId);
 		return context.redirect(destination.toString(), 303);
 	});
 
@@ -973,11 +1037,11 @@ export const createApp = (dependencies: AppDependencies) => {
 
 	app.onError((error, context) => {
 		const serviceError = toServiceError(error);
-		return errorResponse(
-			serviceError,
-			context.get("requestId") ?? randomUUID(),
-			dependencies.config.publicOrigin,
-		);
+		const requestId = context.get("requestId") ?? randomUUID();
+		if (context.req.method === "POST" && context.req.path === "/claim") {
+			return claimErrorResponse(serviceError, requestId);
+		}
+		return errorResponse(serviceError, requestId, dependencies.config.publicOrigin);
 	});
 
 	return app;

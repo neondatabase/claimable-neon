@@ -80,8 +80,8 @@ const dataApiUpdate = strict({
 });
 
 /**
- * The 21 operations `neon deploy`, `neon status`, and `neon env pull` actually reach, verified
- * against the CLI and `config-runtime` on 2026-08-03.
+ * The operations `neon deploy`, `neon status`, and `neon env pull` actually reach, verified
+ * against the CLI and `config-runtime`.
  */
 export const OPERATIONS: readonly Operation[] = [
 	// --- reads ---------------------------------------------------------------------------
@@ -235,23 +235,6 @@ export const OPERATIONS: readonly Operation[] = [
 			access_level: z.literal("private").optional(),
 		}),
 		description: "Create a private bucket",
-	},
-	{
-		method: "POST",
-		pattern: "/projects/:projectId/branches/:branchId/credentials",
-		scope: null,
-		body: strict({
-			scopes: z.array(z.string()).min(1),
-			principal_type: z.enum(["user"]).optional(),
-			name: z.string().min(1).max(200).optional(),
-		}),
-		description: "Mint a branch credential (scopes are clamped to the token's)",
-	},
-	{
-		method: "DELETE",
-		pattern: "/projects/:projectId/branches/:branchId/credentials/:tokenId",
-		scope: null,
-		description: "Revoke a branch credential",
 	},
 	{
 		method: "POST",

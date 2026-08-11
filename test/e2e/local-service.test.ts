@@ -66,6 +66,11 @@ const claimStatusResponse = z.object({
 	reconciled: z.literal(false),
 });
 
+const anonymousTokenResponse = z.object({
+	token: z.string().min(1),
+	expires_at: z.number().positive(),
+});
+
 const baseUrl = (process.env.CLAIMABLE_E2E_BASE_URL ?? "http://localhost:8787").replace(
 	/\/+$/,
 	"",
@@ -94,19 +99,28 @@ const exchange = async (assertion: string): Promise<string> => {
 
 describe("local Claimable Neon service", () => {
 	it("provisions, authorizes, connects, proxies, revokes, and deletes", async () => {
-		const registration = registrationResponse.parse(
-			await json(
-				await fetch(`${baseUrl}/v1/agent/identity`, {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						type: "anonymous",
-						capabilities: ["postgres", "data_api", "auth", "functions"],
-						source: "local_e2e",
-					}),
+		const invalidBrowserClaim = await fetch(`${baseUrl}/claim`, {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({ user_code: "AAAA-AAAA" }),
+		});
+		expect(invalidBrowserClaim.ok).toBe(false);
+		expect(invalidBrowserClaim.headers.get("content-type")).toContain("text/html");
+		expect(await invalidBrowserClaim.text()).toContain("Claim could not continue");
+
+		const registrationBody = await json(
+			await fetch(`${baseUrl}/v1/agent/identity`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					type: "anonymous",
+					capabilities: ["postgres", "data_api", "auth", "functions"],
+					source: "local_e2e",
 				}),
-			),
+			}),
 		);
+		expect(registrationBody).not.toHaveProperty("claim");
+		const registration = registrationResponse.parse(registrationBody);
 		const projectId = registration.project.id;
 		const assertion = registration.identity_assertion;
 		let cleanupToken: string | undefined;
@@ -156,9 +170,27 @@ describe("local Claimable Neon service", () => {
 				const [row] = await sql<{ value: string }[]>`
 					select value from claimable_e2e where id = 1`;
 				expect(row?.value).toBe("local-service");
+				await sql`grant usage on schema public to anonymous`;
+				await sql`grant select on table claimable_e2e to anonymous`;
 			} finally {
 				await sql.end({ timeout: 5 });
 			}
+
+			const anonymous = anonymousTokenResponse.parse(
+				await json(await fetch(`${credentials.services.auth.base_url}/token/anonymous`)),
+			);
+			const dataApi = await fetch(
+				`${credentials.services.data_api.url}/claimable_e2e?select=id,value&id=eq.1`,
+				{
+					headers: { authorization: `Bearer ${anonymous.token}` },
+				},
+			);
+			expect(dataApi.status).toBe(200);
+			expect(
+				z
+					.array(z.object({ id: z.number(), value: z.string() }))
+					.parse(await dataApi.json()),
+			).toEqual([{ id: 1, value: "local-service" }]);
 
 			const proxied = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
 				headers: authorization,
@@ -219,6 +251,30 @@ describe("local Claimable Neon service", () => {
 				headers: authorization,
 			});
 			expect(revokedUse.status).toBe(401);
+
+			cleanupToken = claimStatusToken;
+			const revokeAssertion = await fetch(`${baseUrl}/v1/oauth2/revoke`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({
+					token: assertion,
+					token_type_hint: "identity_assertion",
+				}),
+			});
+			expect(revokeAssertion.status).toBe(200);
+			const exchangeAfterRevocation = await fetch(`${baseUrl}/v1/oauth2/token`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({
+					grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+					assertion,
+					resource: `${baseUrl}/`,
+				}),
+			});
+			expect(exchangeAfterRevocation.status).toBe(400);
+			expect(errorResponse.parse(await exchangeAfterRevocation.json()).error.code).toBe(
+				"invalid_grant",
+			);
 		} catch (error) {
 			testFailure = error;
 		}

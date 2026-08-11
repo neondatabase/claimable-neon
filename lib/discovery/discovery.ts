@@ -31,29 +31,39 @@ export const authorizationServerMetadata = (origin: string) => {
 
 export const authMarkdown = (origin: string): string => {
 	const base = originWithoutTrailingSlash(origin);
-	return `# Claimable Neon authentication
+	return `# Claimable Neon for agents
 
-Claimable Neon provisions a temporary Lakebase Postgres database for an agent. A human can later
-claim the underlying Neon project.
+Claimable Neon provisions a temporary Lakebase Postgres database on Neon before a human creates an
+account. It issues credentials scoped to one project. A human can later transfer that project into
+their Neon organization.
 
 ## Discover
 
-Read the protected-resource metadata at:
+Read the OAuth metadata before using the API:
 
 \`\`\`text
 ${base}/.well-known/oauth-protected-resource
+${base}/.well-known/oauth-authorization-server
 \`\`\`
 
 ## Register anonymously
+
+Request \`postgres\` and any optional services the app needs. \`data_api\` and \`auth\` are
+available before claim. \`functions\`, \`storage\`, and \`ai_gateway\` return a recorded
+\`capability_requires_claim\` decision.
 
 \`\`\`http
 POST ${base}/v1/agent/identity
 Content-Type: application/json
 
-{"type":"anonymous","capabilities":["postgres"]}
+{"type":"anonymous","capabilities":["postgres","data_api","auth"],"source":"your-agent"}
 \`\`\`
 
-Store the returned \`identity_assertion\`. It is the durable secret.
+The response contains:
+
+- \`identity_assertion\`: the durable secret. Store it like an API key.
+- \`project.id\`, \`project.branch_id\`, and \`project.expires_at\`.
+- One decision for every requested capability. Check \`granted\` before using a service.
 
 ## Exchange for an access token
 
@@ -67,9 +77,82 @@ grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<identity_asser
 The response contains a short-lived bearer \`access_token\` and no refresh token. Re-exchange the
 identity assertion when the access token expires.
 
-## Use and revoke
+## Pull credentials
 
-Send \`Authorization: Bearer <access_token>\` to routes under \`${base}/v1\`.
-Revoke an access token with \`POST ${base}/v1/oauth2/revoke\`.
+\`\`\`http
+GET ${base}/v1/databases/<project_id>/credentials
+Authorization: Bearer <access_token>
+\`\`\`
+
+The response contains \`database_url\`, the project and branch IDs, \`expires_at\`, and credentials
+for granted services:
+
+- \`services.data_api.url\`
+- \`services.auth.base_url\`
+- \`services.auth.jwks_url\`
+
+## Use the project
+
+Use \`database_url\` with any Postgres client. Supported Neon Management API operations are
+available through the scoped proxy:
+
+\`\`\`http
+GET ${base}/v1/projects/<project_id>/...
+Authorization: Bearer <access_token>
+\`\`\`
+
+The project-scoped Neon API key stays inside Claimable Neon and is never returned.
+
+If the Neon CLI is available, it can register, store the identity assertion, and write environment
+variables:
+
+\`\`\`bash
+neon claim create --service data-api --service auth --env-pull
+neon branches list
+\`\`\`
+
+## Claim the project
+
+Create a short-lived human claim code when the project is ready to keep:
+
+\`\`\`http
+POST ${base}/v1/databases/<project_id>/claim
+Authorization: Bearer <access_token>
+\`\`\`
+
+Open the returned \`verification_uri_complete\`. The human signs in to Neon, selects a destination
+organization, and accepts the transfer.
+
+Poll at the returned \`interval\`:
+
+\`\`\`http
+GET ${base}/v1/databases/<project_id>/claim
+Authorization: Bearer <claim_status_access_token>
+\`\`\`
+
+The claim moves through \`pending\`, \`accepted\`, and \`reconciled\`. Stop using pre-claim
+credentials when the browser claim starts. At \`reconciled\`, the identity assertion, access
+tokens, project key, database password, Data API, and Managed Better Auth integration no longer
+authorize the agent.
+
+## Delete or revoke
+
+Delete an unclaimed project:
+
+\`\`\`http
+DELETE ${base}/v1/databases/<project_id>
+Authorization: Bearer <access_token>
+\`\`\`
+
+Revoke an access token or identity assertion with \`POST ${base}/v1/oauth2/revoke\`.
+
+## Handle errors
+
+Every error has an \`error.code\`, human-readable \`error.message\`, \`error.origin\`,
+\`error.retryable\`, and \`error.request_id\`. Use the code for control flow. Retry only when
+\`error.retryable\` is true.
+
+When \`error.code\` is \`capability_requires_claim\`, preserve the denied capability and give the
+human a claim link instead of retrying or silently omitting it.
 `;
 };

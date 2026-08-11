@@ -21,12 +21,12 @@ target shape.
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
+| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; dedicated two-org live run pending |
 
 ## Not yet implemented
 
 - Rate limiting and quotas
 - Automatic deletion of expired unclaimed projects
-- Derived-credential teardown and the transition from `accepted` to `reconciled`
 - A human-completed end-to-end test of the project-transfer claim ceremony
 - Neon Function deployment
 
@@ -55,15 +55,20 @@ two vocabularies cannot drift apart again.
 **Project lifetime is policy, not protocol.** 72 hours today, exposed only as
 `project.expires_at`. Clients read the field; nothing hard-codes the window.
 
+**Claim preparation removes pre-claim access before exposing the Neon transfer URL.** The service
+disables Data API and Managed Better Auth, resets the default role password, revokes the
+project-scoped API key and access tokens, then redirects the human to accept the transfer. The
+identity assertion remains valid only for claim-status token exchange. After the project leaves the
+source organization, the first status poll revokes the assertion and records `reconciled`.
+
+**Managed Better Auth is disabled rather than transferred.** Its provider project has a separate,
+interactive ownership ceremony. Claimable Neon cannot complete that ceremony on behalf of the
+recipient, and leaving the provider active would leave pre-claim Auth tokens alive. The recipient
+can re-enable Managed Better Auth after the Neon project transfer.
+
 ## Known open questions
 
 These are unresolved and each one changes the design if it goes the wrong way.
-
-**Managed Better Auth ownership transfers separately from the Neon project.**
-`POST /projects/auth/transfer_ownership` returns a URL that must be completed in the auth
-provider's UI, and `NeonAuthIntegration` carries its own `transfer_status`. So claiming a project
-that has Auth enabled needs a second, interactive ceremony that cannot be done from a CLI or
-non-interactively at all. This is why `auth` is off by default.
 
 **Whether Managed Better Auth can be enabled without outbound email.** If it cannot, an anonymous
 caller gets a mail sender on Neon's sending reputation, and `auth` should leave the pre-claim
