@@ -32,6 +32,13 @@ const credentialsResponse = z.object({
 	expires_at: z.string().datetime(),
 	services: z.object({
 		data_api: z.object({ url: z.string().url() }),
+		auth: z.object({
+			auth_provider: z.string().min(1),
+			base_url: z.string().url(),
+			jwks_url: z.string().url(),
+			schema_name: z.string().min(1),
+			table_name: z.string().min(1),
+		}),
 	}),
 });
 
@@ -94,7 +101,7 @@ describe("local Claimable Neon service", () => {
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
 						type: "anonymous",
-						capabilities: ["postgres", "data_api", "functions"],
+						capabilities: ["postgres", "data_api", "auth", "functions"],
 						source: "local_e2e",
 					}),
 				}),
@@ -110,6 +117,7 @@ describe("local Claimable Neon service", () => {
 				expect.arrayContaining([
 					expect.objectContaining({ capability: "postgres", granted: true }),
 					expect.objectContaining({ capability: "data_api", granted: true }),
+					expect.objectContaining({ capability: "auth", granted: true }),
 					expect.objectContaining({
 						capability: "functions",
 						granted: false,
@@ -186,10 +194,13 @@ describe("local Claimable Neon service", () => {
 			expect(claimCode.verification_uri_complete).toContain(
 				encodeURIComponent(claimCode.user_code),
 			);
+			const claimStatusToken = await exchange(assertion);
 			const claimStatus = claimStatusResponse.parse(
 				await json(
 					await fetch(`${baseUrl}/v1/databases/${projectId}/claim`, {
-						headers: authorization,
+						headers: {
+							authorization: `Bearer ${claimStatusToken}`,
+						},
 					}),
 				),
 			);

@@ -26,7 +26,7 @@ export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
  */
 export type Operation = {
 	method: HttpMethod;
-	/** e.g. `/projects/:projectId/branches/:branchId/neon_auth` */
+	/** e.g. `/projects/:projectId/branches/:branchId/auth` */
 	pattern: string;
 	/** The scope a token must carry. `null` means any valid token for the project. */
 	scope: Scope | null;
@@ -131,7 +131,7 @@ export const OPERATIONS: readonly Operation[] = [
 	},
 	{
 		method: "GET",
-		pattern: "/projects/:projectId/branches/:branchId/neon_auth",
+		pattern: "/projects/:projectId/branches/:branchId/auth",
 		scope: null,
 		description: "Neon Auth state",
 	},
@@ -186,7 +186,7 @@ export const OPERATIONS: readonly Operation[] = [
 	},
 	{
 		method: "POST",
-		pattern: "/projects/:projectId/branches/:branchId/neon_auth",
+		pattern: "/projects/:projectId/branches/:branchId/auth",
 		scope: "auth.configure",
 		capability: "auth",
 		body: authCreate,

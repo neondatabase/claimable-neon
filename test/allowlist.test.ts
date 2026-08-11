@@ -97,7 +97,7 @@ describe("matchOperation", () => {
 
 describe("request body validation", () => {
 	it("rejects unknown fields rather than stripping them", () => {
-		const schema = bodyFor("POST", "/projects/:projectId/branches/:branchId/neon_auth");
+		const schema = bodyFor("POST", "/projects/:projectId/branches/:branchId/auth");
 		const result = schema?.safeParse({
 			auth_provider: "better_auth",
 			send_email: true,

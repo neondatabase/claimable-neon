@@ -18,7 +18,7 @@ target shape.
 | Configuration validation and localhost-only user-key guard | `lib/config/config.ts` | `test/config.test.ts` |
 | auth.md and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
-| Real project provisioning, operation readiness, project-scoped key minting, Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
+| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
 
@@ -28,7 +28,6 @@ target shape.
 - Automatic deletion of expired unclaimed projects
 - Derived-credential teardown and the transition from `accepted` to `reconciled`
 - A human-completed end-to-end test of the project-transfer claim ceremony
-- Live provisioning coverage for Managed Better Auth
 - Neon Function deployment
 
 ## Deployment blocker

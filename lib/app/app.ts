@@ -652,25 +652,26 @@ export const createApp = (dependencies: AppDependencies) => {
 			dependencies.sql,
 			assertion.registration_id,
 		);
-		if (registration.issuanceFrozen) {
-			throw new ServiceError(
-				"invalid_grant",
-				"New access-token issuance is frozen while this project is being claimed.",
-			);
-		}
+		// Starting a claim freezes project mutations, not observation of the ceremony itself.
+		// A client does not retain access tokens indefinitely, so refusing every later exchange
+		// would make `GET .../claim` unreachable as soon as its first token expired. During the
+		// ceremony, issue an empty-scope token. The claim-status route explicitly admits a
+		// frozen registration; every other route rejects that registration before its scope
+		// check, so the token can do exactly one thing without widening the public scope set.
+		const accessScopes = registration.issuanceFrozen ? [] : registration.scopes;
 		const access = await mintAccessToken(dependencies.signingKey, {
 			issuer: dependencies.config.issuer,
 			audience: dependencies.config.audience,
 			registrationId: registration.id,
 			projectId: registration.neonProjectId,
-			scopes: registration.scopes,
+			scopes: accessScopes,
 			notAfter: registration.expiresAt,
 		});
 		await recordToken(dependencies.sql, {
 			jti: access.jti,
 			registrationId: registration.id,
 			kind: "access",
-			scopes: registration.scopes,
+			scopes: accessScopes,
 			expiresAt: access.expiresAt,
 		});
 		return context.json({

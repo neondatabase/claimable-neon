@@ -41,9 +41,7 @@ const apiKeyResponse = z.object({
 
 const authCredential = z.object({
 	auth_provider: z.string().min(1),
-	auth_provider_project_id: z.string().min(1),
-	pub_client_key: z.string().min(1),
-	secret_server_key: z.string().min(1),
+	base_url: z.string().url(),
 	jwks_url: z.string().url(),
 	schema_name: z.string().min(1),
 	table_name: z.string().min(1),
@@ -252,7 +250,7 @@ export const configureCapabilities = async (
 	const projectPath = `/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}`;
 
 	if (capabilities.includes("auth")) {
-		const response = await client.post(`${projectPath}/neon_auth`, {
+		const response = await client.post(`${projectPath}/auth`, {
 			auth_provider: "better_auth",
 			database_name: project.databaseName,
 		});
