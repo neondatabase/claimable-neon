@@ -42,7 +42,7 @@ read a project can also delete it. This service enforces the finer capability bo
 |---|---|---|
 | `postgres` | always | Lakebase Postgres is always provisioned. |
 | `data_api` | on request | Neon Data API. Off by default. |
-| `auth` | on request | Managed Better Auth. Off by default. Disabled before project transfer so pre-claim Auth tokens do not survive; the recipient can re-enable it. |
+| `auth` | on request | Managed Better Auth. Off by default. Its pre-claim integration and data are deleted before project transfer so Auth tokens do not survive; the recipient can re-enable it. |
 | `storage` | no | Neon Object Storage requires a claim. The S3 data plane bypasses this service, and Neon does not expose the storage quota needed to cap pre-claim usage. |
 | `functions` | no | Deployment requires a claim. `neon dev` can still run declared functions locally against the claimable database. |
 | `ai_gateway` | no | Neon AI Gateway requires a claim. |

@@ -44,8 +44,8 @@ mode on any non-localhost origin.
 full `claim` object with a `user_code`, which implies the transfer request already exists. That
 reintroduces two problems at once: a standing accept-able offer for the project's whole life, and a
 registration response whose possession is equivalent to possession of the project. Registration
-now returns only `claim.start_url`; `POST /v1/databases/{id}/claim` creates the transfer request
-per attempt, with its own expiry.
+returns no claim object. `POST /v1/databases/{id}/claim` creates a short-lived human code; browser
+redemption creates one transfer request for that attempt.
 
 **Capability and scope names are uniformly snake_case, and a scope is always
 `<capability>.<action>`.** `dataapi` alongside `ai_gateway` was inconsistent on a wire format that
@@ -56,15 +56,19 @@ two vocabularies cannot drift apart again.
 `project.expires_at`. Clients read the field; nothing hard-codes the window.
 
 **Claim preparation removes pre-claim access before exposing the Neon transfer URL.** The service
-disables Data API and Managed Better Auth, resets the default role password, revokes the
-project-scoped API key and access tokens, then redirects the human to accept the transfer. The
-identity assertion remains valid only for claim-status token exchange. After the project leaves the
-source organization, the first status poll revokes the assertion and records `reconciled`.
+revokes the project-scoped API key, disables the compute to terminate and block database sessions,
+disables Data API, deletes the pre-claim Managed Better Auth integration and data, resets every
+password-authenticated role, re-enables the compute, and revokes access tokens. It then redirects
+the human to accept the transfer. The identity assertion remains valid only for claim-status token
+exchange. After the project leaves the source organization, the first status poll revokes the
+assertion and records `reconciled`; the retained status token can repeat that terminal read if the
+first response is lost.
 
-**Managed Better Auth is disabled rather than transferred.** Its provider project has a separate,
+**Managed Better Auth is deleted rather than transferred.** Its provider project has a separate,
 interactive ownership ceremony. Claimable Neon cannot complete that ceremony on behalf of the
-recipient, and leaving the provider active would leave pre-claim Auth tokens alive. The recipient
-can re-enable Managed Better Auth after the Neon project transfer.
+recipient, and leaving the provider active would leave pre-claim Auth tokens alive. The pre-claim
+integration and database data are deleted; the recipient can re-enable Managed Better Auth after
+the Neon project transfer.
 
 ## Known open questions
 

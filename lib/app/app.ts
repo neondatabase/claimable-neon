@@ -55,6 +55,7 @@ import {
 	startClaimTransfer,
 	storeProjectKey,
 	storeServiceCredential,
+	withRegistrationLock,
 } from "../store/store.ts";
 import { publicJwks } from "../tokens/keys.ts";
 import {
@@ -250,11 +251,15 @@ const revocationJti = async (
 	}
 };
 
+type AuthenticatedRegistration = {
+	registration: Registration;
+	tokenScopes: Registration["scopes"];
+};
+
 const authenticate = async (
 	authorization: string | undefined,
 	dependencies: AppDependencies,
-	allowDuringClaim = false,
-): Promise<{ registration: Registration; tokenScopes: Registration["scopes"] }> => {
+): Promise<AuthenticatedRegistration> => {
 	const token = bearerToken(authorization);
 	const claims = await verifyAccessToken(dependencies.signingKey, token, {
 		issuer: dependencies.config.issuer,
@@ -273,7 +278,7 @@ const authenticate = async (
 			"Access token project does not match its registration.",
 		);
 	}
-	if (registration.issuanceFrozen && !allowDuringClaim) {
+	if (registration.issuanceFrozen) {
 		throw new ServiceError(
 			"claim_in_progress",
 			"This project is being claimed. Only claim-status polling is available.",
@@ -281,6 +286,81 @@ const authenticate = async (
 		);
 	}
 	return { registration, tokenScopes: claims.scopes };
+};
+
+const authenticateClaimStatus = async (
+	authorization: string | undefined,
+	dependencies: AppDependencies,
+): Promise<AuthenticatedRegistration> => {
+	const token = bearerToken(authorization);
+	const claims = await verifyAccessToken(dependencies.signingKey, token, {
+		issuer: dependencies.config.issuer,
+		audience: dependencies.config.audience,
+	});
+	const registration = await findRegistration(dependencies.sql, claims.registration_id);
+	if (!registration) {
+		throw new ServiceError("unauthorized", "Access token registration does not exist.");
+	}
+	if (registration.neonProjectId !== claims.project_id) {
+		throw new ServiceError(
+			"unauthorized",
+			"Access token project does not match its registration.",
+		);
+	}
+	// A reconciled claim is terminal and non-sensitive. Let a previously issued token repeat this
+	// one read even though reconciliation revoked it, so a lost final response is recoverable.
+	if (registration.claimState === "reconciled") {
+		return { registration, tokenScopes: [] };
+	}
+	if (await isTokenRevoked(dependencies.sql, claims.jti)) {
+		throw new ServiceError("unauthorized", "This access token was revoked.");
+	}
+	const usable = await requireUsableRegistration(dependencies.sql, registration.id);
+	return { registration: usable, tokenScopes: claims.scopes };
+};
+
+const withAuthenticatedRegistrationLock = async <Result>(
+	authorization: string | undefined,
+	dependencies: AppDependencies,
+	operation: (
+		authenticated: AuthenticatedRegistration,
+		lockedDependencies: AppDependencies,
+	) => Promise<Result>,
+): Promise<Result> => {
+	const initial = await authenticate(authorization, dependencies);
+	return withRegistrationLock(
+		dependencies.sql,
+		initial.registration.id,
+		async (lockedSql) => {
+			const lockedDependencies = { ...dependencies, sql: lockedSql };
+			return operation(
+				await authenticate(authorization, lockedDependencies),
+				lockedDependencies,
+			);
+		},
+	);
+};
+
+const withClaimStatusLock = async <Result>(
+	authorization: string | undefined,
+	dependencies: AppDependencies,
+	operation: (
+		authenticated: AuthenticatedRegistration,
+		lockedDependencies: AppDependencies,
+	) => Promise<Result>,
+): Promise<Result> => {
+	const initial = await authenticateClaimStatus(authorization, dependencies);
+	return withRegistrationLock(
+		dependencies.sql,
+		initial.registration.id,
+		async (lockedSql) => {
+			const lockedDependencies = { ...dependencies, sql: lockedSql };
+			return operation(
+				await authenticateClaimStatus(authorization, lockedDependencies),
+				lockedDependencies,
+			);
+		},
+	);
 };
 
 const requireMatchingProject = (registration: Registration, projectId: string): void => {
@@ -800,27 +880,39 @@ export const createApp = (dependencies: AppDependencies) => {
 			dependencies.sql,
 			assertion.registration_id,
 		);
-		return context.json(await createClaimCode(dependencies, registration));
+		return withRegistrationLock(dependencies.sql, registration.id, async (lockedSql) => {
+			const lockedDependencies = { ...dependencies, sql: lockedSql };
+			const current = await requireUsableRegistration(lockedSql, registration.id);
+			return context.json(await createClaimCode(lockedDependencies, current));
+		});
 	});
 
 	app.post("/v1/databases/:projectId/claim", async (context) => {
-		const authenticated = await authenticate(
+		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
+			async (authenticated, lockedDependencies) => {
+				requireMatchingProject(
+					authenticated.registration,
+					context.req.param("projectId"),
+				);
+				return context.json(
+					await createClaimCode(lockedDependencies, authenticated.registration),
+				);
+			},
 		);
-		requireMatchingProject(authenticated.registration, context.req.param("projectId"));
-		return context.json(await createClaimCode(dependencies, authenticated.registration));
 	});
 
 	app.get("/v1/databases/:projectId/claim", async (context) => {
-		const authenticated = await authenticate(
+		return withClaimStatusLock(
 			context.req.header("authorization"),
 			dependencies,
-			true,
+			async (authenticated, lockedDependencies) => {
+				const registration = authenticated.registration;
+				requireMatchingProject(registration, context.req.param("projectId"));
+				return context.json(await getClaimStatus(lockedDependencies, registration));
+			},
 		);
-		const registration = authenticated.registration;
-		requireMatchingProject(registration, context.req.param("projectId"));
-		return context.json(await getClaimStatus(dependencies, registration));
 	});
 
 	app.get("/claim", (context) => {
@@ -876,154 +968,185 @@ export const createApp = (dependencies: AppDependencies) => {
 				"Claim code is unknown, expired, or already used.",
 			);
 		}
-		if (attempt.expiresAt.getTime() <= Date.now()) {
-			await setClaimAttemptState(dependencies.sql, {
-				attemptId: attempt.id,
-				state: "expired",
-			});
-			throw new ServiceError("invalid_grant", "Claim code has expired.");
-		}
 		const registration = await findRegistration(dependencies.sql, attempt.registrationId);
 		if (!registration) {
 			throw new ServiceError("invalid_grant", "Claim registration no longer exists.");
 		}
-		await requireUsableRegistration(dependencies.sql, registration.id);
-		let transferRequestId = attempt.transferRequestId;
-		if (!transferRequestId) {
-			const ttlSeconds = Math.max(
-				1,
-				Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
+		return withRegistrationLock(dependencies.sql, registration.id, async (lockedSql) => {
+			const lockedDependencies = { ...dependencies, sql: lockedSql };
+			const currentAttempt = await latestClaimAttempt(lockedSql, registration.id);
+			if (
+				!currentAttempt ||
+				currentAttempt.id !== attempt.id ||
+				currentAttempt.state !== "pending"
+			) {
+				throw new ServiceError(
+					"invalid_grant",
+					"Claim code is unknown, expired, or already used.",
+				);
+			}
+			if (currentAttempt.expiresAt.getTime() <= Date.now()) {
+				await setClaimAttemptState(lockedSql, {
+					attemptId: currentAttempt.id,
+					state: "expired",
+				});
+				throw new ServiceError("invalid_grant", "Claim code has expired.");
+			}
+			const currentRegistration = await requireUsableRegistration(
+				lockedSql,
+				registration.id,
 			);
-			const transfer = await createProjectTransferRequest(
-				dependencies.orgClient,
-				registration.neonProjectId,
-				ttlSeconds,
-			);
-			transferRequestId = transfer.id;
-			await startClaimTransfer(dependencies.sql, {
-				attemptId: attempt.id,
-				transferRequestId,
-			});
-		}
-		await freezeIssuance(dependencies.sql, registration.id);
-		await setClaimState(dependencies.sql, registration.id, "pending");
-		await prepareClaimTransfer(dependencies, registration);
-		const destination = new URL(dependencies.config.consoleClaimUrl);
-		destination.searchParams.set("p", registration.neonProjectId);
-		destination.searchParams.set("tr", transferRequestId);
-		return context.redirect(destination.toString(), 303);
+			let transferRequestId = currentAttempt.transferRequestId;
+			if (!transferRequestId) {
+				const transfer = await createProjectTransferRequest(
+					lockedDependencies.orgClient,
+					currentRegistration.neonProjectId,
+					lockedDependencies.config.claimAttemptTtlSeconds,
+				);
+				transferRequestId = transfer.id;
+				await startClaimTransfer(lockedSql, {
+					attemptId: currentAttempt.id,
+					transferRequestId,
+					expiresAt: transfer.expiresAt,
+				});
+			}
+			await freezeIssuance(lockedSql, currentRegistration.id);
+			await setClaimState(lockedSql, currentRegistration.id, "pending");
+			await prepareClaimTransfer(lockedDependencies, currentRegistration);
+			const destination = new URL(lockedDependencies.config.consoleClaimUrl);
+			destination.searchParams.set("p", currentRegistration.neonProjectId);
+			destination.searchParams.set("tr", transferRequestId);
+			return context.redirect(destination.toString(), 303);
+		});
 	});
 
 	app.get("/v1/databases/:projectId", async (context) => {
-		const authenticated = await authenticate(
+		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
-		);
-		const projectId = context.req.param("projectId");
-		requireMatchingProject(authenticated.registration, projectId);
-		const client = await projectClient(dependencies, authenticated.registration);
-		const response = await client.get(`/projects/${encodeURIComponent(projectId)}`);
-		return context.json(
-			projectResponse(response.data, [
-				"id",
-				"name",
-				"region_id",
-				"created_at",
-				"pg_version",
-				"branch_logical_size_limit_bytes",
-			]),
+			async (authenticated, lockedDependencies) => {
+				const projectId = context.req.param("projectId");
+				requireMatchingProject(authenticated.registration, projectId);
+				const client = await projectClient(
+					lockedDependencies,
+					authenticated.registration,
+				);
+				const response = await client.get(`/projects/${encodeURIComponent(projectId)}`);
+				return context.json(
+					projectResponse(response.data, [
+						"id",
+						"name",
+						"region_id",
+						"created_at",
+						"pg_version",
+						"branch_logical_size_limit_bytes",
+					]),
+				);
+			},
 		);
 	});
 
 	app.get("/v1/databases/:projectId/credentials", async (context) => {
-		const authenticated = await authenticate(
+		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
+			async (authenticated, lockedDependencies) => {
+				if (!hasScope(authenticated.tokenScopes, "postgres.read")) {
+					throw new ServiceError(
+						"scope_insufficient",
+						"Fetching database credentials requires postgres.read.",
+						{ requiredScope: "postgres.read" },
+					);
+				}
+				const projectId = context.req.param("projectId");
+				requireMatchingProject(authenticated.registration, projectId);
+				const registration = authenticated.registration;
+				const client = await projectClient(lockedDependencies, registration);
+				const query = new URLSearchParams({
+					branch_id: registration.neonBranchId,
+					database_name: registration.databaseName,
+					role_name: registration.roleName,
+					pooled: "true",
+				});
+				const response = await client.get(
+					`/projects/${encodeURIComponent(projectId)}/connection_uri?${query.toString()}`,
+				);
+				const connection = parseWith(
+					connectionUriResponse,
+					response.data,
+					"Neon returned an invalid connection URI response.",
+				);
+				await recordDerivedCredential(lockedDependencies.sql, {
+					registrationId: registration.id,
+					kind: "connection_uri",
+					branchId: registration.neonBranchId,
+					scopes: ["postgres.read", "postgres.write"],
+					expiresAt: registration.expiresAt,
+				});
+				const storedServices = await getServiceCredentials(
+					lockedDependencies.sql,
+					registration.id,
+				);
+				const services: Record<string, unknown> = {};
+				for (const stored of storedServices) {
+					services[stored.capability] = decodeServiceCredential(
+						stored.ciphertext,
+						stored.nonce,
+						lockedDependencies.config.keyEncryptionKey,
+					);
+				}
+				return context.json({
+					project_id: projectId,
+					branch_id: registration.neonBranchId,
+					database_url: connection.uri,
+					expires_at: registration.expiresAt.toISOString(),
+					services,
+				});
+			},
 		);
-		if (!hasScope(authenticated.tokenScopes, "postgres.read")) {
-			throw new ServiceError(
-				"scope_insufficient",
-				"Fetching database credentials requires postgres.read.",
-				{ requiredScope: "postgres.read" },
-			);
-		}
-		const projectId = context.req.param("projectId");
-		requireMatchingProject(authenticated.registration, projectId);
-		const registration = authenticated.registration;
-		const client = await projectClient(dependencies, registration);
-		const query = new URLSearchParams({
-			branch_id: registration.neonBranchId,
-			database_name: registration.databaseName,
-			role_name: registration.roleName,
-			pooled: "true",
-		});
-		const response = await client.get(
-			`/projects/${encodeURIComponent(projectId)}/connection_uri?${query.toString()}`,
-		);
-		const connection = parseWith(
-			connectionUriResponse,
-			response.data,
-			"Neon returned an invalid connection URI response.",
-		);
-		await recordDerivedCredential(dependencies.sql, {
-			registrationId: registration.id,
-			kind: "connection_uri",
-			branchId: registration.neonBranchId,
-			scopes: ["postgres.read", "postgres.write"],
-			expiresAt: registration.expiresAt,
-		});
-		const storedServices = await getServiceCredentials(dependencies.sql, registration.id);
-		const services: Record<string, unknown> = {};
-		for (const stored of storedServices) {
-			services[stored.capability] = decodeServiceCredential(
-				stored.ciphertext,
-				stored.nonce,
-				dependencies.config.keyEncryptionKey,
-			);
-		}
-		return context.json({
-			project_id: projectId,
-			branch_id: registration.neonBranchId,
-			database_url: connection.uri,
-			expires_at: registration.expiresAt.toISOString(),
-			services,
-		});
 	});
 
 	app.delete("/v1/databases/:projectId", async (context) => {
-		const authenticated = await authenticate(
+		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
+			async (authenticated, lockedDependencies) => {
+				if (!hasScope(authenticated.tokenScopes, "postgres.write")) {
+					throw new ServiceError(
+						"scope_insufficient",
+						"Deleting a claimable database requires postgres.write.",
+						{ requiredScope: "postgres.write" },
+					);
+				}
+				const projectId = context.req.param("projectId");
+				const registration = authenticated.registration;
+				requireMatchingProject(registration, projectId);
+				const storedKey = await getProjectKey(lockedDependencies.sql, registration.id);
+				await deleteClaimableProject(lockedDependencies.orgClient, projectId);
+				await revokeProjectKey(
+					lockedDependencies.orgClient,
+					lockedDependencies.config.neonOrgId,
+					storedKey.neonKeyId,
+				);
+				await revokeAllTokens(lockedDependencies.sql, registration.id);
+				await markProjectKeyRevoked(lockedDependencies.sql, registration.id);
+				await revokeRegistration(
+					lockedDependencies.sql,
+					registration.id,
+					"deleted_by_agent",
+				);
+				return context.body(null, 204);
+			},
 		);
-		if (!hasScope(authenticated.tokenScopes, "postgres.write")) {
-			throw new ServiceError(
-				"scope_insufficient",
-				"Deleting a claimable database requires postgres.write.",
-				{ requiredScope: "postgres.write" },
-			);
-		}
-		const projectId = context.req.param("projectId");
-		const registration = authenticated.registration;
-		requireMatchingProject(registration, projectId);
-		const storedKey = await getProjectKey(dependencies.sql, registration.id);
-		await deleteClaimableProject(dependencies.orgClient, projectId);
-		await revokeProjectKey(
-			dependencies.orgClient,
-			dependencies.config.neonOrgId,
-			storedKey.neonKeyId,
-		);
-		await revokeAllTokens(dependencies.sql, registration.id);
-		await markProjectKeyRevoked(dependencies.sql, registration.id);
-		await revokeRegistration(dependencies.sql, registration.id, "deleted_by_agent");
-		return context.body(null, 204);
 	});
 
 	app.all("/v1/projects/*", async (context) => {
-		const authenticated = await authenticate(
+		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
+			(authenticated, lockedDependencies) =>
+				proxyManagementRequest(context.req.raw, lockedDependencies, authenticated),
 		);
-		return proxyManagementRequest(context.req.raw, dependencies, authenticated);
 	});
 
 	app.notFound((context) => {

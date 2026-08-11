@@ -50,7 +50,8 @@ ${base}/.well-known/oauth-authorization-server
 
 Request \`postgres\` and any optional services the app needs. \`data_api\` and \`auth\` are
 available before claim. \`functions\`, \`storage\`, and \`ai_gateway\` return a recorded
-\`capability_requires_claim\` decision.
+\`reason: "requires_claim"\` decision. Calling a protected operation for one of those capabilities
+returns the \`capability_requires_claim\` error code.
 
 \`\`\`http
 POST ${base}/v1/agent/identity
@@ -123,7 +124,17 @@ Authorization: Bearer <access_token>
 Open the returned \`verification_uri_complete\`. The human signs in to Neon, selects a destination
 organization, and accepts the transfer.
 
-Poll at the returned \`interval\`:
+Browser redemption revokes existing access tokens. Re-exchange the identity assertion; while the
+claim is in progress, the new token has no project scopes and authorizes only claim-status polling:
+
+\`\`\`http
+POST ${base}/v1/oauth2/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<identity_assertion>&resource=${base}/
+\`\`\`
+
+Retain that access token and poll at the returned \`interval\`:
 
 \`\`\`http
 GET ${base}/v1/databases/<project_id>/claim
@@ -133,7 +144,9 @@ Authorization: Bearer <claim_status_access_token>
 The claim moves through \`pending\`, \`accepted\`, and \`reconciled\`. Stop using pre-claim
 credentials when the browser claim starts. At \`reconciled\`, the identity assertion, access
 tokens, project key, database password, Data API, and Managed Better Auth integration no longer
-authorize the agent.
+authorize project access. The status endpoint keeps returning the terminal \`reconciled\` state
+when retried with the retained status token. Claim preparation deletes the pre-claim Managed Better
+Auth integration and its database data; the recipient can enable a new integration after transfer.
 
 ## Delete or revoke
 

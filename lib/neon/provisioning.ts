@@ -32,7 +32,27 @@ const createProjectResponse = z.object({
 });
 
 const operationResponse = z.object({ operation });
+const projectRole = z.object({
+	name: z.string().min(1),
+	authentication_method: z.enum(["password", "oauth", "no_login"]).optional(),
+	updated_at: z.string().min(1),
+});
 const roleOperationsResponse = z.object({
+	role: projectRole,
+	operations: z.array(operation),
+});
+const rolesResponse = z.object({
+	roles: z.array(projectRole),
+});
+const endpointsResponse = z.object({
+	endpoints: z.array(
+		z.object({
+			id: z.string().min(1),
+			branch_id: z.string().min(1),
+		}),
+	),
+});
+const endpointOperationsResponse = z.object({
 	operations: z.array(operation),
 });
 
@@ -361,12 +381,37 @@ const ignoreMissingIntegration = async (
 	}
 };
 
-export const resetProjectRolePassword = async (
+const retryProjectLock = async <Result>(
+	operation: () => Promise<Result>,
+): Promise<Result> => {
+	const deadline = Date.now() + 60_000;
+	while (true) {
+		try {
+			return await operation();
+		} catch (error) {
+			if (
+				!(
+					error instanceof ServiceError &&
+					error.code === "upstream_error" &&
+					error.options.upstreamStatus === 423
+				) ||
+				Date.now() >= deadline
+			) {
+				throw error;
+			}
+			await setTimeout(1000);
+		}
+	}
+};
+
+const resetProjectRolePassword = async (
 	client: NeonClient,
 	project: Pick<ProvisionedProject, "projectId" | "branchId" | "roleName">,
-): Promise<void> => {
-	const response = await client.post(
-		`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/roles/${pathSegment(project.roleName)}/reset_password`,
+): Promise<ProjectPasswordRole> => {
+	const response = await retryProjectLock(() =>
+		client.post(
+			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/roles/${pathSegment(project.roleName)}/reset_password`,
+		),
 	);
 	const reset = parseUpstream(
 		roleOperationsResponse,
@@ -374,6 +419,83 @@ export const resetProjectRolePassword = async (
 		"resetting the claimable database role password",
 	);
 	await waitForProjectOperations(client, project.projectId, reset.operations);
+	return { name: reset.role.name, updatedAt: reset.role.updated_at };
+};
+
+export type ProjectPasswordRole = {
+	name: string;
+	updatedAt: string;
+};
+
+export const listProjectPasswordRoles = async (
+	client: NeonClient,
+	project: Pick<ProvisionedProject, "projectId" | "branchId">,
+): Promise<ProjectPasswordRole[]> => {
+	const response = await client.get(
+		`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/roles`,
+	);
+	return parseUpstream(rolesResponse, response.data, "listing claimable database roles")
+		.roles.filter(
+			(role) =>
+				role.authentication_method !== "oauth" &&
+				role.authentication_method !== "no_login",
+		)
+		.map((role) => ({ name: role.name, updatedAt: role.updated_at }));
+};
+
+export const resetProjectRolePasswords = async (
+	client: NeonClient,
+	project: Pick<ProvisionedProject, "projectId" | "branchId">,
+): Promise<ProjectPasswordRole[]> => {
+	const roles = await listProjectPasswordRoles(client, project);
+	const resetRoles: ProjectPasswordRole[] = [];
+	for (const role of roles) {
+		resetRoles.push(
+			await resetProjectRolePassword(client, {
+				...project,
+				roleName: role.name,
+			}),
+		);
+	}
+	return resetRoles;
+};
+
+export const setProjectEndpointsDisabled = async (
+	client: NeonClient,
+	project: Pick<ProvisionedProject, "projectId" | "branchId">,
+	disabled: boolean,
+): Promise<void> => {
+	const listed = await client.get(
+		`/projects/${pathSegment(project.projectId)}/endpoints`,
+	);
+	const endpoints = parseUpstream(
+		endpointsResponse,
+		listed.data,
+		"listing claimable project computes",
+	).endpoints.filter((endpoint) => endpoint.branch_id === project.branchId);
+	if (endpoints.length === 0) {
+		throw new ServiceError(
+			"upstream_error",
+			"Neon returned no compute endpoint for the claimable branch.",
+			{ origin: "upstream" },
+		);
+	}
+	for (const endpoint of endpoints) {
+		const response = await retryProjectLock(() =>
+			client.patch(
+				`/projects/${pathSegment(project.projectId)}/endpoints/${pathSegment(endpoint.id)}`,
+				{ endpoint: { disabled } },
+			),
+		);
+		const updated = parseUpstream(
+			endpointOperationsResponse,
+			response.data,
+			disabled
+				? "disabling claimable project connections"
+				: "re-enabling the claimed project compute",
+		);
+		await waitForProjectOperations(client, project.projectId, updated.operations);
+	}
 };
 
 export const disableProjectDataApi = async (
@@ -394,6 +516,6 @@ export const disableProjectAuth = async (
 		client.request(
 			"DELETE",
 			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/auth`,
-			{ delete_data: false },
+			{ delete_data: true },
 		),
 	);

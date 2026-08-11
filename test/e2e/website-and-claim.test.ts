@@ -162,21 +162,49 @@ const neonRequest = (
 		...(body === undefined ? {} : { body: JSON.stringify(body) }),
 	});
 
-const deleteProject = async (apiKey: string, projectId: string): Promise<void> => {
+const deleteProject = async (apiKey: string, projectId: string): Promise<boolean> => {
 	const response = await neonRequest(
 		apiKey,
 		"DELETE",
 		`/projects/${encodeURIComponent(projectId)}`,
 	);
-	if (response.ok || response.status === 404) return;
+	if (response.ok) return true;
+	if (response.status === 404) return false;
 	throw new Error(
 		`Project cleanup failed with HTTP ${response.status}: ${await response.text()}`,
 	);
 };
 
+const cleanupProject = async (
+	apiKeys: readonly string[],
+	projectId: string,
+): Promise<void> => {
+	const uniqueKeys = [...new Set(apiKeys)];
+	let lastFailures: unknown[] = [];
+	for (let attempt = 0; attempt < 10; attempt += 1) {
+		lastFailures = [];
+		for (const apiKey of uniqueKeys) {
+			try {
+				if (await deleteProject(apiKey, projectId)) return;
+			} catch (error) {
+				lastFailures.push(error);
+			}
+		}
+		if (lastFailures.length === 0 && attempt >= 2) return;
+		await setTimeout(1000);
+	}
+	if (lastFailures.length > 0) {
+		throw new AggregateError(
+			lastFailures,
+			"Project cleanup failed for every possible owner.",
+		);
+	}
+};
+
 type Discovery = z.infer<typeof authorizationServerMetadata>;
 type Registration = z.infer<typeof registrationResponse>;
 type Credentials = z.infer<typeof credentialsResponse>;
+type PostgresClient = ReturnType<typeof postgres>;
 
 const registerProject = async (metadata: Discovery): Promise<Registration> => {
 	const registration = registrationResponse.parse(
@@ -265,7 +293,14 @@ const useProvisionedServices = async (
 		"capability_requires_claim",
 	);
 
-	return { credentials, anonymousToken, authorization };
+	const heldDatabase = postgres(credentials.database_url, {
+		connect_timeout: 30,
+		max: 1,
+		prepare: false,
+	});
+	await heldDatabase`select pg_backend_pid()`;
+
+	return { credentials, anonymousToken, authorization, heldDatabase };
 };
 
 const startBrowserClaim = async (
@@ -286,7 +321,11 @@ const startBrowserClaim = async (
 		body: new URLSearchParams({ user_code: claim.user_code }),
 		redirect: "manual",
 	});
-	expect(browserClaim.status).toBe(303);
+	if (browserClaim.status !== 303) {
+		throw new Error(
+			`Browser claim failed with HTTP ${browserClaim.status}: ${await browserClaim.text()}`,
+		);
+	}
 	const location = browserClaim.headers.get("location");
 	if (!location) throw new Error("Browser claim response did not include a Location.");
 	const transferUrl = new URL(location);
@@ -302,7 +341,9 @@ const expectPreClaimCredentialsRevoked = async (
 	credentials: Credentials,
 	anonymousToken: string,
 	authorization: Record<string, string>,
+	heldDatabase: PostgresClient,
 ): Promise<void> => {
+	await expect(heldDatabase`select 1`).rejects.toThrow();
 	const oldDatabase = postgres(credentials.database_url, {
 		connect_timeout: 5,
 		prepare: false,
@@ -349,7 +390,7 @@ const waitForReconciliation = async (
 	registration: Registration,
 	metadata: Discovery,
 	intervalSeconds: number,
-): Promise<void> => {
+): Promise<string> => {
 	const deadline = Date.now() + 90_000;
 	while (Date.now() < deadline) {
 		const statusToken = await exchange(
@@ -363,10 +404,24 @@ const waitForReconciliation = async (
 				}),
 			),
 		);
-		if (status.state === "reconciled" && status.reconciled) return;
+		if (status.state === "reconciled" && status.reconciled) return statusToken;
 		await setTimeout(intervalSeconds * 1000);
 	}
 	throw new Error("Claim did not reach reconciled before the E2E timeout.");
+};
+
+const expectTerminalStatusRepeatable = async (
+	registration: Registration,
+	statusToken: string,
+): Promise<void> => {
+	const status = claimStatusResponse.parse(
+		await responseJson(
+			await fetch(`${serviceBaseUrl}/v1/databases/${registration.project.id}/claim`, {
+				headers: { authorization: `Bearer ${statusToken}` },
+			}),
+		),
+	);
+	expect(status).toMatchObject({ state: "reconciled", reconciled: true });
 };
 
 const expectAssertionRevoked = async (
@@ -395,6 +450,54 @@ describe("website discovery and full claim ceremony", () => {
 		await discoverFromWebsite();
 	});
 
+	it.skipIf(!websiteOrigin || !sourceApiKey)(
+		"revokes credentials and terminates sessions before exposing a transfer URL",
+		async () => {
+			if (!sourceApiKey) {
+				throw new Error("A source API key is required for claim-preparation cleanup.");
+			}
+			const metadata = await discoverFromWebsite();
+			const registration = await registerProject(metadata);
+			let heldDatabase: PostgresClient | undefined;
+			let testFailure: unknown;
+
+			try {
+				const provisioned = await useProvisionedServices(registration, metadata);
+				heldDatabase = provisioned.heldDatabase;
+				const { credentials, anonymousToken, authorization } = provisioned;
+				await startBrowserClaim(registration, authorization);
+				await expectPreClaimCredentialsRevoked(
+					registration,
+					credentials,
+					anonymousToken,
+					authorization,
+					heldDatabase,
+				);
+			} catch (error) {
+				testFailure = error;
+			}
+
+			const cleanupFailures: unknown[] = [];
+			try {
+				await heldDatabase?.end({ timeout: 1 });
+			} catch (error) {
+				cleanupFailures.push(error);
+			}
+			try {
+				await cleanupProject([sourceApiKey], registration.project.id);
+			} catch (error) {
+				cleanupFailures.push(error);
+			}
+			if (cleanupFailures.length > 0) {
+				throw new AggregateError(
+					cleanupFailures,
+					"Claim-preparation E2E cleanup failed.",
+				);
+			}
+			if (testFailure) throw testFailure;
+		},
+	);
+
 	it.skipIf(!websiteOrigin || !recipientApiKey || !recipientOrgId || !sourceApiKey)(
 		"provisions from auth.md, uses every pre-claim service, transfers, reconciles, and revokes",
 		async () => {
@@ -405,12 +508,13 @@ describe("website discovery and full claim ceremony", () => {
 			}
 			const metadata = await discoverFromWebsite();
 			const registration = await registerProject(metadata);
-			let transferred = false;
 			let testFailure: unknown;
+			let heldDatabase: PostgresClient | undefined;
 
 			try {
-				const { credentials, anonymousToken, authorization } =
-					await useProvisionedServices(registration, metadata);
+				const provisioned = await useProvisionedServices(registration, metadata);
+				heldDatabase = provisioned.heldDatabase;
+				const { credentials, anonymousToken, authorization } = provisioned;
 				const { claim, transferRequestId } = await startBrowserClaim(
 					registration,
 					authorization,
@@ -420,6 +524,7 @@ describe("website discovery and full claim ceremony", () => {
 					credentials,
 					anonymousToken,
 					authorization,
+					heldDatabase,
 				);
 				await acceptTransfer(
 					recipientApiKey,
@@ -427,26 +532,34 @@ describe("website discovery and full claim ceremony", () => {
 					registration.project.id,
 					transferRequestId,
 				);
-				transferred = true;
-				await waitForReconciliation(registration, metadata, claim.interval);
+				const terminalStatusToken = await waitForReconciliation(
+					registration,
+					metadata,
+					claim.interval,
+				);
 				await expectAssertionRevoked(
 					registration.identity_assertion,
 					metadata.token_endpoint,
 				);
+				await expectTerminalStatusRepeatable(registration, terminalStatusToken);
 			} catch (error) {
 				testFailure = error;
 			}
 
-			let cleanupFailure: unknown;
+			const cleanupFailures: unknown[] = [];
 			try {
-				await deleteProject(
-					transferred ? recipientApiKey : sourceApiKey,
-					registration.project.id,
-				);
+				await heldDatabase?.end({ timeout: 1 });
 			} catch (error) {
-				cleanupFailure = error;
+				cleanupFailures.push(error);
 			}
-			if (cleanupFailure) throw cleanupFailure;
+			try {
+				await cleanupProject([recipientApiKey, sourceApiKey], registration.project.id);
+			} catch (error) {
+				cleanupFailures.push(error);
+			}
+			if (cleanupFailures.length > 0) {
+				throw new AggregateError(cleanupFailures, "Claim E2E cleanup failed.");
+			}
 			if (testFailure) throw testFailure;
 		},
 	);

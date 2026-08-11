@@ -109,6 +109,26 @@ export const migrate = async (sql: Sql): Promise<void> => {
 	await sql.unsafe(schema);
 };
 
+export const withRegistrationLock = async <Result>(
+	sql: Sql,
+	registrationId: string,
+	operation: (lockedSql: Sql) => Promise<Result>,
+): Promise<Result> => {
+	const connection = await sql.reserve();
+	await connection`
+		select pg_advisory_lock(hashtextextended(${registrationId}, 0))`;
+	try {
+		return await operation(connection);
+	} finally {
+		try {
+			await connection`
+				select pg_advisory_unlock(hashtextextended(${registrationId}, 0))`;
+		} finally {
+			connection.release();
+		}
+	}
+};
+
 export type CreateRegistrationInput = {
 	id: string;
 	identityType: IdentityType;
@@ -597,11 +617,13 @@ export const startClaimTransfer = async (
 	input: {
 		attemptId: number;
 		transferRequestId: string;
+		expiresAt: Date;
 	},
 ): Promise<void> => {
 	await sql`
 		update claim_attempts
-		set transfer_request_id = ${input.transferRequestId}
+		set transfer_request_id = ${input.transferRequestId},
+			expires_at = ${input.expiresAt}
 		where id = ${input.attemptId} and state = 'pending'`;
 };
 
