@@ -1,7 +1,8 @@
 # Agent instructions
 
-An agent consuming this service starts at `llms.txt`, then `auth.md`, then the OAuth metadata
-that names every endpoint. Do not guess `POST /v1/agent/identity`.
+An agent consuming this service starts at neon.com `llms.txt`, then `auth.md`, then installs the
+Neon CLI and uses it with `neon.ts`. Do not guess `POST /v1/agent/identity`. Raw HTTP is the
+protocol the CLI speaks.
 
 ## How an agent discovers the flow
 
@@ -31,7 +32,15 @@ GET {origin}/.well-known/oauth-authorization-server
 ```
 
 `agent_auth.skill` is `/auth.md`. `identity_endpoint` is where you register. `claim_endpoint`
-starts a claim with the identity assertion. Then:
+starts a claim with the identity assertion. The agent path is:
+
+```text
+npm i -g neon@latest          # https://neon.com/docs/cli/install.md
+# write neon.ts               # https://neon.com/docs/reference/neon-ts.md
+# CLI registers, env pull, deploy, claim — do not run neon auth pre-claim
+```
+
+Raw HTTP the CLI speaks:
 
 ```text
 POST /v1/agent/identity

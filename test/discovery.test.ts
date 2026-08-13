@@ -49,7 +49,10 @@ describe("auth.md discovery", () => {
 		expect(markdown).toContain("https://neon.com/docs/reference/claimable-postgres.md");
 		expect(markdown).toContain(`${origin}/llms.txt`);
 		expect(markdown).toContain(`${origin}/auth.md`);
-		expect(markdown).toContain("Do not look for `/auth.md` on neon.com.");
+		expect(markdown).toContain("npm i -g neon@latest");
+		expect(markdown).toContain("https://neon.com/docs/cli/install.md");
+		expect(markdown).toContain("https://neon.com/docs/reference/neon-ts.md");
+		expect(markdown).toContain("neon claim create");
 		expect(markdown).toContain('["postgres","data_api","auth"]');
 		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/credentials`);
 		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/...`);

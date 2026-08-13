@@ -84,6 +84,26 @@ ${base}/.well-known/oauth-authorization-server
 The authorization-server document's \`agent_auth.skill\` is this file. \`identity_endpoint\` is
 where you register. \`claim_endpoint\` starts a claim with the identity assertion.
 
+## Install the Neon CLI
+
+The Neon CLI is the client. Do not start from the HTTP examples unless you are implementing a
+client. Install it, declare services in \`neon.ts\`, and let the CLI register, store the identity
+assertion, and pull env. Do not run \`neon auth\` — that needs a human Neon account.
+
+\`\`\`bash
+npm i -g neon@latest
+\`\`\`
+
+https://neon.com/docs/cli/install.md
+https://neon.com/docs/reference/neon-ts.md
+
+\`\`\`bash
+neon claim create --service data-api --service auth --env-pull
+neon branches list
+\`\`\`
+
+The HTTP below is the protocol the CLI speaks.
+
 ## Register anonymously
 
 Request \`postgres\` and any optional services the app needs. \`data_api\` and \`auth\` are
@@ -141,14 +161,6 @@ Authorization: Bearer <access_token>
 \`\`\`
 
 The project-scoped Neon API key stays inside Claimable Neon and is never returned.
-
-If the Neon CLI is available, it can register, store the identity assertion, and write environment
-variables:
-
-\`\`\`bash
-neon claim create --service data-api --service auth --env-pull
-neon branches list
-\`\`\`
 
 ## Claim the project
 

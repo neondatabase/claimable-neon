@@ -51,20 +51,21 @@ indexes `/auth.md` on the same host. It is not how the origin is discovered.
 The live https://neon.com/docs/reference/claimable-postgres.md page still documents neon.new and
 does not yet contain that pointer.
 
-Then the agent registers anonymously, exchanges an https://auth.md identity assertion for a
-short-lived access token, and this service sits on every authorized call. It never receives a Neon
-API key. Credentials and an allowlisted Management API come after the token. A human claims with a
-short-lived code; the Neon transfer is created then, not at provision.
+Then the agent installs the Neon CLI, writes https://neon.com/docs/reference/neon-ts.md (`neon.ts`),
+and uses the CLI as the client. Raw HTTP is the protocol the CLI speaks, not the agent path. The
+CLI claimable client is not built yet.
 
 Until the neon.new API is removed, `POST https://neon.new/api/v1/database` keeps its contract. It is
 not the long-term agent API. Instant-URL users are not moved to JWT bearer in week one.
 
 ## Motivation
 
-neon.new vends a connection string. Agents that need a Neon project — proxy, Auth, Data API,
-revocable credentials, claim when a human is ready — cannot use that shape. Starting the transfer
-at create is what makes hours 24–72 unclaimable. A project-scoped Neon API key that can read a
-project can also delete it, so it cannot be the credential the agent holds.
+Agents cannot open a browser and create a Neon account. https://auth.md is userless registration:
+the agent gets an identity assertion and a project without a human in the loop. A human claims
+later if they want to keep it.
+
+neon.new is one unauthenticated POST and a password in `.env`. That is not signup, not revocable,
+and not a Neon project the agent can drive. Claimable Neon is the auth.md path.
 
 ## How an agent moves through the system
 
@@ -77,37 +78,44 @@ agent
   ▼
   │  2. GET https://claimable.neon.tech/auth.md
   │     GET https://claimable.neon.tech/.well-known/oauth-authorization-server
-  │     (identity_endpoint, token_endpoint, claim_endpoint)
   ▼
-  │  3. POST /v1/agent/identity
-  │     { "type": "anonymous", "capabilities": ["postgres", …] }
+  │  3. Install the Neon CLI, write neon.ts, use the CLI
+  │     npm i -g neon@latest
+  │     https://neon.com/docs/cli/install.md
+  │     https://neon.com/docs/reference/neon-ts.md
+  │     Do not run neon auth (that needs a human account).
+  │     The CLI stores the identity assertion and talks to this origin.
   ▼
-claimable-neon
-  │  creates a Neon project in the unclaimed org
-  │  mints a project-scoped napi_… and keeps it
-  │  returns identity_assertion (the durable secret) + project.id
-  │
-  │  4. POST /v1/oauth2/token
-  │     grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+  │  4. CLI registers / env pull / deploy
+  │     (HTTP underneath: POST /v1/agent/identity, POST /v1/oauth2/token,
+  │      GET /v1/projects/{id}/credentials, allowlisted proxy)
   ▼
-  │  returns access_token (short-lived, scoped, revocable)
-  │
-  │  5. GET /v1/projects/{id}/credentials      → DATABASE_URL
-  │     GET/PATCH/POST /v1/projects/{id}/…     → allowlisted Management API
-  │     DELETE /v1/projects/{id}               → tear down
-  │
-  │  6. POST /v1/projects/{id}/claim            → user_code + verification_uri
-  │     (or POST /v1/agent/identity/claim with the assertion)
+  │  5. CLI starts a claim when a human is ready
+  │     (HTTP underneath: POST /v1/projects/{id}/claim)
   ▼
 human
-  │  opens /claim, enters the code
-  │  service revokes pre-claim access, then redirects to the Neon console
-  │  human signs in and accepts the project transfer
+  │  opens verification_uri, signs in, accepts the transfer
   │
-  │  7. GET /v1/projects/{id}/claim             → poll until reconciled
+  │  6. CLI polls GET /v1/projects/{id}/claim until reconciled
   ▼
 project now lives in the human's org; the assertion is revoked
 ```
+
+The CLI claimable client is not built. Until it is, auth.md still shows the HTTP protocol so a
+client can be written. Once it ships, curl is not the agent path.
+
+### How we nudge
+
+Agents copy the first executable block they see. The neon.com Claimable Postgres page and
+https://claimable.neon.tech/auth.md must lead with install + `neon.ts` + the CLI. Curl belongs
+under the protocol, not first. “If the CLI is available” is how they skip it.
+
+Do not run `neon auth` before claim. That is a human Neon account. The identity assertion is the
+pre-claim credential.
+
+`neon.ts` stays ordinary Neon config (no claimable-specific fields). `neon deploy` sends every
+declared service to this API; denied capabilities come back as `requires_claim` rather than being
+stripped client-side.
 
 Registration does **not** create a Neon transfer request. The transfer exists only after a human
 redeems a short-lived claim code. Until then, possession of the registration response is not
