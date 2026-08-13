@@ -13,6 +13,7 @@ import type { Scope } from "../capabilities/scopes.ts";
 import { ServiceError } from "../errors/errors.ts";
 
 export type Sql = postgres.Sql<Record<string, never>>;
+type ExecSql = Sql | postgres.TransactionSql<Record<string, never>>;
 
 const textArray = (sql: Sql, values: readonly string[]) =>
 	sql`array(
@@ -651,6 +652,32 @@ export const setClaimAttemptState = async (
 		where id = ${input.attemptId}`;
 };
 
+const applyClaimReconciliation = async (
+	sql: ExecSql,
+	input: {
+		registrationId: string;
+		attemptId: number;
+		claimedIntoOrg?: string;
+	},
+): Promise<void> => {
+	await sql`
+		update tokens
+		set revoked_at = coalesce(revoked_at, now())
+		where registration_id = ${input.registrationId}
+			and revoked_at is null`;
+	await sql`
+		update registrations
+		set claim_state = 'reconciled',
+			claimed_at = coalesce(claimed_at, now()),
+			claimed_into_org = coalesce(${input.claimedIntoOrg ?? null}, claimed_into_org)
+		where id = ${input.registrationId}`;
+	await sql`
+		update claim_attempts
+		set state = 'reconciled',
+			completed_at = coalesce(completed_at, now())
+		where id = ${input.attemptId}`;
+};
+
 export const completeClaimReconciliation = async (
 	sql: Sql,
 	input: {
@@ -659,24 +686,22 @@ export const completeClaimReconciliation = async (
 		claimedIntoOrg?: string;
 	},
 ): Promise<void> => {
-	await sql.begin(async (transaction) => {
-		await transaction`
-			update tokens
-			set revoked_at = coalesce(revoked_at, now())
-			where registration_id = ${input.registrationId}
-				and revoked_at is null`;
-		await transaction`
-			update registrations
-			set claim_state = 'reconciled',
-				claimed_at = coalesce(claimed_at, now()),
-				claimed_into_org = coalesce(${input.claimedIntoOrg ?? null}, claimed_into_org)
-			where id = ${input.registrationId}`;
-		await transaction`
-			update claim_attempts
-			set state = 'reconciled',
-				completed_at = coalesce(completed_at, now())
-			where id = ${input.attemptId}`;
-	});
+	// `withRegistrationLock` hands in a reserved connection. postgres.js only
+	// puts `.begin()` on the pool, so the status-poll path cannot use it.
+	if (typeof sql.begin === "function") {
+		await sql.begin(async (transaction) => {
+			await applyClaimReconciliation(transaction, input);
+		});
+		return;
+	}
+	await sql`begin`;
+	try {
+		await applyClaimReconciliation(sql, input);
+		await sql`commit`;
+	} catch (error) {
+		await sql`rollback`;
+		throw error;
+	}
 };
 
 export type UsageEventName =

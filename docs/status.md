@@ -22,12 +22,11 @@ target shape.
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
-| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; dedicated two-org live run pending |
+| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; two-org live claim of `wild-glitter-92451527` into `org-summer-dust-66593634` |
 
 ## Not yet implemented
 
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
-- A human-completed end-to-end test of the project-transfer claim ceremony
 - Neon Function deployment
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
 
