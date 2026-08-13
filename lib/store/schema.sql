@@ -33,7 +33,10 @@ create table if not exists registrations (
     issuance_frozen   boolean     not null default false,
 
     revoked_at        timestamptz,
-    revoked_reason    text
+    revoked_reason    text,
+
+    -- Caller-supplied source tag (auth.md, CLI, raw API, e2e). Same role as neon.new's referrer.
+    source            text        not null default 'raw_api'
 );
 
 create index if not exists registrations_expires_at_idx
@@ -164,3 +167,22 @@ create table if not exists rate_counters (
 );
 
 create index if not exists rate_counters_window_idx on rate_counters (window_start);
+
+-- Idempotent for databases initialized before `source` existed.
+alter table registrations
+    add column if not exists source text not null default 'raw_api';
+
+-- Request-level usage kept in the state database for local ops and debugging.
+-- The warehouse path is `https://track.neon.tech` (Zerobus), same as CLI and MCP.
+create table if not exists usage_events (
+    id                bigserial primary key,
+    event             text        not null,
+    source            text,
+    registration_id   text        references registrations (id) on delete set null,
+    project_id        text,
+    properties        jsonb       not null default '{}'::jsonb,
+    created_at        timestamptz not null default now()
+);
+
+create index if not exists usage_events_rollup_idx
+    on usage_events (event, source, created_at);

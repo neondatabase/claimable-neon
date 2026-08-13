@@ -19,6 +19,7 @@ and lint fixes.
 
 ## Project structure
 
+- `lib/analytics/`: `@segment/analytics-node` client for `https://track.neon.tech` (Zerobus)
 - `lib/capabilities/`: pure capability and scope decisions
 - `lib/proxy/`: the explicit Neon Management API allowlist
 - `lib/tokens/`: assertion and access-token signing and verification

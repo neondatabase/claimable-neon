@@ -18,17 +18,21 @@ target shape.
 | Configuration validation and localhost-only user-key guard | `lib/config/config.ts` | `test/config.test.ts` |
 | auth.md and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
+| Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
-| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; dedicated two-org live run pending |
+| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; two-org live claim of `wild-glitter-92451527` into `org-summer-dust-66593634` |
 
 ## Not yet implemented
 
-- Rate limiting and quotas
-- Automatic deletion of expired unclaimed projects
-- A human-completed end-to-end test of the project-transfer claim ceremony
+- Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
 - Neon Function deployment
+- A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
+
+## Deferred
+
+**Anonymous create-rate limits.** Prod neon.new has no create-rate quota either. It caps unclaimed projects at 100 MB storage, 1 GB transfer, and 72 hours — this service already applies those via `PROJECT_LOGICAL_SIZE_BYTES`, `PROJECT_DATA_TRANSFER_BYTES`, and `PROJECT_TTL_SECONDS`. Unlimited anonymous *creates* are watched through `track.neon.tech` (and local `usage_events`) rather than refused at the edge.
 
 ## Deployment blocker
 
@@ -55,6 +59,19 @@ two vocabularies cannot drift apart again.
 **Project lifetime is policy, not protocol.** 72 hours today, exposed only as
 `project.expires_at`. Clients read the field; nothing hard-codes the window.
 
+**Default Managed Better Auth sends mail through Neon's shared SMTP.** Enabling Auth with
+`{"auth_provider":"better_auth"}` uses `auth@mail.myneon.app`. That sender is rate-limited, does
+not support verification links, and is what Free-plan projects already use. Email verification is
+off by default. Auth stays off by default in this service because an anonymous pre-claim project
+would send on Neon's reputation; the recipient re-enables Auth after claim.
+
+**Usage is emitted to `https://track.neon.tech`, the same Zerobus path as CLI and MCP.** Every
+registration, token issue, claim, proxy call, credentials read, and deletion also writes a
+`usage_events` row for local durability. The warehouse source of truth is analytics-events →
+Zerobus (`analytics_events_prod.default.events`, then `prod.transformed.stg_tracking_zerobus_*` /
+`fact_segment_*`). Orbit rolls those events into `prod.product.claimable_neon_*` once a write key
+and a dbt table exist. neon.new's JDBC-from-state-DB path is not used here.
+
 **Claim preparation removes pre-claim access before exposing the Neon transfer URL.** The service
 revokes the project-scoped API key, disables the compute to terminate and block database sessions,
 disables Data API, deletes the pre-claim Managed Better Auth integration and data, resets every
@@ -73,10 +90,6 @@ the Neon project transfer.
 ## Known open questions
 
 These are unresolved and each one changes the design if it goes the wrong way.
-
-**Whether Managed Better Auth can be enabled without outbound email.** If it cannot, an anonymous
-caller gets a mail sender on Neon's sending reputation, and `auth` should leave the pre-claim
-set entirely rather than merely defaulting off.
 
 **Whether the default database role can create further login roles.** If it can, rotating that
 role's password at claim time is not sufficient. The pre-claim holder can leave a second role

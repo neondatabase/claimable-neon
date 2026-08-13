@@ -13,6 +13,7 @@ import type { Scope } from "../capabilities/scopes.ts";
 import { ServiceError } from "../errors/errors.ts";
 
 export type Sql = postgres.Sql<Record<string, never>>;
+type ExecSql = Sql | postgres.TransactionSql<Record<string, never>>;
 
 const textArray = (sql: Sql, values: readonly string[]) =>
 	sql`array(
@@ -48,6 +49,7 @@ export type Registration = {
 	issuanceFrozen: boolean;
 	revokedAt: Date | null;
 	revokedReason: string | null;
+	source: string;
 };
 
 type RegistrationRow = {
@@ -69,6 +71,7 @@ type RegistrationRow = {
 	issuance_frozen: boolean;
 	revoked_at: Date | null;
 	revoked_reason: string | null;
+	source: string;
 };
 
 const toRegistration = (row: RegistrationRow): Registration => ({
@@ -90,6 +93,7 @@ const toRegistration = (row: RegistrationRow): Registration => ({
 	issuanceFrozen: row.issuance_frozen,
 	revokedAt: row.revoked_at,
 	revokedReason: row.revoked_reason,
+	source: row.source,
 });
 
 export const connect = (databaseUrl: string): Sql =>
@@ -141,6 +145,7 @@ export type CreateRegistrationInput = {
 	roleName: string;
 	scopes: readonly Scope[];
 	expiresAt: Date;
+	source: string;
 };
 
 export const createRegistration = async (
@@ -151,12 +156,12 @@ export const createRegistration = async (
 		insert into registrations (
 			id, identity_type, asserted_subject, asserted_issuer,
 			neon_project_id, neon_org_id, neon_branch_id, database_name, role_name,
-			scopes, expires_at
+			scopes, expires_at, source
 		) values (
 			${input.id}, ${input.identityType}, ${input.assertedSubject ?? null},
 			${input.assertedIssuer ?? null}, ${input.neonProjectId}, ${input.neonOrgId},
 			${input.neonBranchId}, ${input.databaseName}, ${input.roleName},
-			${textArray(sql, input.scopes)}, ${input.expiresAt}
+			${textArray(sql, input.scopes)}, ${input.expiresAt}, ${input.source}
 		)
 		returning *`;
 	if (!row) {
@@ -647,6 +652,32 @@ export const setClaimAttemptState = async (
 		where id = ${input.attemptId}`;
 };
 
+const applyClaimReconciliation = async (
+	sql: ExecSql,
+	input: {
+		registrationId: string;
+		attemptId: number;
+		claimedIntoOrg?: string;
+	},
+): Promise<void> => {
+	await sql`
+		update tokens
+		set revoked_at = coalesce(revoked_at, now())
+		where registration_id = ${input.registrationId}
+			and revoked_at is null`;
+	await sql`
+		update registrations
+		set claim_state = 'reconciled',
+			claimed_at = coalesce(claimed_at, now()),
+			claimed_into_org = coalesce(${input.claimedIntoOrg ?? null}, claimed_into_org)
+		where id = ${input.registrationId}`;
+	await sql`
+		update claim_attempts
+		set state = 'reconciled',
+			completed_at = coalesce(completed_at, now())
+		where id = ${input.attemptId}`;
+};
+
 export const completeClaimReconciliation = async (
 	sql: Sql,
 	input: {
@@ -655,22 +686,50 @@ export const completeClaimReconciliation = async (
 		claimedIntoOrg?: string;
 	},
 ): Promise<void> => {
-	await sql.begin(async (transaction) => {
-		await transaction`
-			update tokens
-			set revoked_at = coalesce(revoked_at, now())
-			where registration_id = ${input.registrationId}
-				and revoked_at is null`;
-		await transaction`
-			update registrations
-			set claim_state = 'reconciled',
-				claimed_at = coalesce(claimed_at, now()),
-				claimed_into_org = coalesce(${input.claimedIntoOrg ?? null}, claimed_into_org)
-			where id = ${input.registrationId}`;
-		await transaction`
-			update claim_attempts
-			set state = 'reconciled',
-				completed_at = coalesce(completed_at, now())
-			where id = ${input.attemptId}`;
-	});
+	// `withRegistrationLock` hands in a reserved connection. postgres.js only
+	// puts `.begin()` on the pool, so the status-poll path cannot use it.
+	if (typeof sql.begin === "function") {
+		await sql.begin(async (transaction) => {
+			await applyClaimReconciliation(transaction, input);
+		});
+		return;
+	}
+	await sql`begin`;
+	try {
+		await applyClaimReconciliation(sql, input);
+		await sql`commit`;
+	} catch (error) {
+		await sql`rollback`;
+		throw error;
+	}
+};
+
+export type UsageEventName =
+	| "registration_created"
+	| "token_issued"
+	| "claim_started"
+	| "claim_reconciled"
+	| "proxy_call"
+	| "credentials_read"
+	| "registration_deleted";
+
+export const recordUsageEvent = async (
+	sql: Sql,
+	input: {
+		event: UsageEventName;
+		source?: string | undefined;
+		registrationId?: string | undefined;
+		projectId?: string | undefined;
+		properties?: postgres.JSONValue | undefined;
+	},
+): Promise<void> => {
+	await sql`
+		insert into usage_events (event, source, registration_id, project_id, properties)
+		values (
+			${input.event},
+			${input.source ?? null},
+			${input.registrationId ?? null},
+			${input.projectId ?? null},
+			${sql.json(input.properties ?? {})}
+		)`;
 };

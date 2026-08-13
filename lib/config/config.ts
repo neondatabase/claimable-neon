@@ -71,6 +71,18 @@ const schema = z.object({
 	CONSOLE_CLAIM_URL: z.string().url().default("https://console.neon.tech/app/claim"),
 
 	LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+	/**
+	 * Write key for `https://track.neon.tech` (analytics-events → Zerobus). Optional: without
+	 * it, track is a no-op. `usage_events` still records locally; the warehouse path is the
+	 * live stream, same as CLI and MCP.
+	 */
+	ANALYTICS_WRITE_KEY: z
+		.string()
+		.optional()
+		.transform((value) => {
+			const trimmed = value?.trim() ?? "";
+			return trimmed.length > 0 ? trimmed : undefined;
+		}),
 });
 
 export type Config = {
@@ -96,6 +108,7 @@ export type Config = {
 	claimAttemptTtlSeconds: number;
 	consoleClaimUrl: string;
 	logLevel: "debug" | "info" | "warn" | "error";
+	analyticsWriteKey: string | undefined;
 };
 
 export const loadConfig = (env: Record<string, string | undefined>): Config => {
@@ -152,5 +165,6 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 		claimAttemptTtlSeconds: value.CLAIM_ATTEMPT_TTL_SECONDS,
 		consoleClaimUrl: value.CONSOLE_CLAIM_URL,
 		logLevel: value.LOG_LEVEL,
+		analyticsWriteKey: value.ANALYTICS_WRITE_KEY,
 	};
 };

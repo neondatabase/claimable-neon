@@ -1,3 +1,4 @@
+import { createAnalytics } from "../lib/analytics/analytics.ts";
 import { createApp } from "../lib/app/app.ts";
 import { loadConfig } from "../lib/config/config.ts";
 import { NeonClient } from "../lib/neon/client.ts";
@@ -16,6 +17,7 @@ const app = createApp({
 		apiKey: config.neonApiKey,
 		baseUrl: config.neonApiHost,
 	}),
+	analytics: createAnalytics(config.analyticsWriteKey),
 });
 
 export const closeDatabase = async (): Promise<void> => {
