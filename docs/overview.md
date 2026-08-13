@@ -30,13 +30,30 @@ path has no Management API, no Auth, and no Data API.
 
 Not deployed. Target: https://claimable.neon.tech
 
-An agent starts at https://claimable.neon.tech/auth.md — the protocol file on the service origin,
-next to the OAuth well-known documents. neon.com holds a pointer, not a copy; do not host auth.md
-on neon.com. Spec: https://workos.com/auth-md/docs/auth-md
+An agent starts on neon.com, not on this origin. It does not guess
+https://claimable.neon.tech/auth.md.
 
-The agent registers anonymously, exchanges an https://auth.md identity assertion for a short-lived
-access token, and this service sits on every authorized call. It never receives a Neon API key.
-Credentials and an allowlisted Management API come after the token. A human claims with a
+```text
+GET https://neon.com/docs/llms.txt
+GET https://neon.com/docs/reference/claimable-postgres.md
+GET https://claimable.neon.tech/auth.md
+GET https://claimable.neon.tech/.well-known/oauth-authorization-server
+```
+
+https://neon.com/docs/llms.txt lists Claimable Postgres. That docs page points at
+https://claimable.neon.tech/auth.md — the protocol file on the service origin, next to the OAuth
+well-known documents. neon.com holds that pointer, not a copy of auth.md. Spec:
+https://workos.com/auth-md/docs/auth-md
+
+If the agent already has this origin (from that pointer), `GET https://claimable.neon.tech/llms.txt`
+indexes `/auth.md` on the same host. It is not how the origin is discovered.
+
+The live https://neon.com/docs/reference/claimable-postgres.md page still documents neon.new and
+does not yet contain that pointer.
+
+Then the agent registers anonymously, exchanges an https://auth.md identity assertion for a
+short-lived access token, and this service sits on every authorized call. It never receives a Neon
+API key. Credentials and an allowlisted Management API come after the token. A human claims with a
 short-lived code; the Neon transfer is created then, not at provision.
 
 Until the neon.new API is removed, `POST https://neon.new/api/v1/database` keeps its contract. It is
@@ -56,7 +73,7 @@ agent
   │
   │  1. GET https://neon.com/docs/llms.txt
   │     follow Claimable Postgres → https://neon.com/docs/reference/claimable-postgres.md
-  │     or GET https://claimable.neon.tech/llms.txt
+  │     that page names https://claimable.neon.tech/auth.md
   ▼
   │  2. GET https://claimable.neon.tech/auth.md
   │     GET https://claimable.neon.tech/.well-known/oauth-authorization-server
