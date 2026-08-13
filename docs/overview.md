@@ -1,7 +1,7 @@
 # Claimable Neon, high level
 
 Claimable Neon replaces the Instagres backend behind https://neon.new. After it ships, neon.new is
-sunset on a clock (appendix). The agent API is https://claimable.neon.tech.
+sunset on a clock (appendix). The new API will be https://claimable.neon.tech.
 
 ## Status
 
@@ -13,7 +13,7 @@ sunset on a clock (appendix). The agent API is https://claimable.neon.tech.
 | npm `neon-new` / `get-db` | Live. Deprecation warning after announce, then deprecated. |
 | https://claimable.neon.tech | Built in this repo. Not deployed. |
 | https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. After announce: Claimable Neon docs; neon.new API docs come off neon.com. |
-| Funnel | API events in `usage_events` (and https://track.neon.tech once a write key exists). Discovery GETs, errors, unclaimed expiry, and agent feedback are not recorded. |
+| Funnel | API events in `usage_events` (and https://track.neon.tech once a write key exists). |
 | Neon Function deploy, dedicated https://track.neon.tech write key, expiry janitor | Open. Blockers for going live. |
 
 ## Current behavior
