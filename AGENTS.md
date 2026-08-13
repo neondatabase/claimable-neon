@@ -1,7 +1,8 @@
 # Agent instructions
 
 Read [`docs/status.md`](docs/status.md) before answering any question about what this service
-does. The README describes the target API; `status.md` says what actually exists. Follow
+does. The README describes the target API; `status.md` says what actually exists;
+[`docs/overview.md`](docs/overview.md) is the agent flow and the neon.new comparison. Follow
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, architecture, testing, and pre-commit checks.
 
 ## What this is

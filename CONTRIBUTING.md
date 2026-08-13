@@ -27,6 +27,7 @@ and lint fixes.
 - `lib/neon/`: the internal Neon Management API client
 - `lib/errors/`: public service error codes and envelopes
 - `test/`: unit, contract, and end-to-end tests
+- `docs/overview.md`: agent flow and how this differs from neon.new
 - `docs/status.md`: implemented surface and unresolved design questions
 
 Keep pure decisions in the functional core and I/O in the imperative shell. Put each independent
