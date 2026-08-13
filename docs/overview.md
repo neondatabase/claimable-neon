@@ -108,7 +108,9 @@ client can be written. Once it ships, curl is not the agent path.
 
 Agents copy the first executable block they see. The neon.com Claimable Postgres page and
 https://claimable.neon.tech/auth.md must lead with install + `neon.ts` + the CLI. Curl belongs
-under the protocol, not first. “If the CLI is available” is how they skip it.
+under the protocol, not first. “If the CLI is available” is how they skip it. The same first
+block also runs `npx skills add neondatabase/agent-skills -s neon -s neon-postgres`. Claimable
+Neon is documented in the `neon` skill, not a standalone `claimable-postgres` skill.
 
 Do not run `neon auth` before claim. That is a human Neon account. The identity assertion is the
 pre-claim credential.

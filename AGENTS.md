@@ -1,8 +1,8 @@
 # Agent instructions
 
 An agent consuming this service starts at neon.com `llms.txt`, then `auth.md`, then installs the
-Neon CLI and uses it with `neon.ts`. Do not guess `POST /v1/agent/identity`. Raw HTTP is the
-protocol the CLI speaks.
+Neon CLI and the `neon` and `neon-postgres` skills, and uses the CLI with `neon.ts`. Do not guess
+`POST /v1/agent/identity`. Raw HTTP is the protocol the CLI speaks.
 
 ## How an agent discovers the flow
 
@@ -36,6 +36,7 @@ starts a claim with the identity assertion. The agent path is:
 
 ```text
 npm i -g neon@latest          # https://neon.com/docs/cli/install.md
+npx skills add neondatabase/agent-skills -s neon -s neon-postgres
 # write neon.ts               # https://neon.com/docs/reference/neon-ts.md
 # CLI registers, env pull, deploy, claim — do not run neon auth pre-claim
 ```
