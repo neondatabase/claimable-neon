@@ -11,7 +11,8 @@ Successor to the service behind `neon.new`. Public API at `https://claimable.neo
 
 Under construction. What is implemented and tested is listed in
 [`docs/status.md`](docs/status.md). This README describes the target interface, not the current
-deployed surface.
+deployed surface. The agent flow and how this differs from neon.new are in
+[`docs/overview.md`](docs/overview.md).
 
 ## Product model
 
