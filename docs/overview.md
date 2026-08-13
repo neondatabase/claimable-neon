@@ -13,6 +13,7 @@ sunset on a clock (appendix). The agent API is https://claimable.neon.tech.
 | npm `neon-new` / `get-db` | Live. Deprecation warning after announce, then deprecated. |
 | https://claimable.neon.tech | Built in this repo. Not deployed. |
 | https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. After announce: Claimable Neon docs; neon.new API docs come off neon.com. |
+| Funnel | API events in `usage_events` (and https://track.neon.tech once a write key exists). Discovery GETs, errors, unclaimed expiry, and agent feedback are not recorded. |
 | Neon Function deploy, dedicated https://track.neon.tech write key, expiry janitor | Open. Blockers for going live. |
 
 ## Current behavior
@@ -98,6 +99,61 @@ possession of the project.
 Denied capabilities (`storage`, `functions`, `ai_gateway` today) are recorded, then denied. The
 record is how demand is measured. Clients must send the full requested set; they must not strip
 unsupported services before the request reaches this API.
+
+## Funnel
+
+Track agents down the path above. The questions:
+
+- Where do they fall off?
+- How many agents per day?
+- How much gets claimed?
+
+### What the service already records
+
+Each of these writes a `usage_events` row and, when `ANALYTICS_WRITE_KEY` is set, an event to
+https://track.neon.tech: `registration_created`, `token_issued`, `credentials_read`, `proxy_call`,
+`claim_started`, `claim_reconciled`, `registration_deleted`. Registration accepts `source`
+(default `raw_api`). Denied capabilities are rows in `capability_requests`.
+
+| Question | From those events |
+|---|---|
+| Agents per day | `registration_created` per day |
+| Claimed | `claim_reconciled` / `registration_created` |
+| Registered, never got a token | `registration_created` without `token_issued` |
+| Got credentials, never claimed | `credentials_read` without `claim_started` |
+| Human opened claim, never finished | `claim_started` without `claim_reconciled` |
+| Deleted instead of claimed | `registration_deleted` |
+
+Until a dedicated write key and a dbt table exist, https://track.neon.tech is a no-op and
+`usage_events` is local only.
+
+### What we cannot see yet
+
+Steps 1–2 are unauthenticated GETs (https://neon.com/docs/llms.txt,
+https://claimable.neon.tech/llms.txt, https://claimable.neon.tech/auth.md, well-known). They are not
+usage events. Fall-off before `POST /v1/agent/identity` is invisible.
+
+Errors are not usage events. An agent that hits `capability_requires_claim` or `invalid_request`
+and stops has no funnel step.
+
+Unclaimed expiry has no event. The janitor is not built. `project.expires_at` is on the
+registration; nothing records “expired unclaimed.”
+
+### Feedback
+
+https://workos.com/auth-md/docs/apps asks auth.md for a contact channel for integration issues.
+https://claimable.neon.tech/auth.md has none.
+
+A contact line in auth.md (email or GitHub) matches the spec and produces no structured data.
+
+https://neon.com/api/docs-feedback already sits on neon.com docs pages. Agents reading
+https://neon.com/docs/reference/claimable-postgres.md can use it. It does not attach to a
+registration.
+
+The shape that sits next to this funnel is `POST /v1/feedback` on this origin: optional
+`registration_id` and `source`, a short text body, recorded like `usage_events`. No auth — the
+agent may have failed to register. Unknown fields rejected. Denied-capability rows already capture
+“wanted storage / functions / ai_gateway”; this is free-text next to that. Not built.
 
 ## Difference from neon.new
 

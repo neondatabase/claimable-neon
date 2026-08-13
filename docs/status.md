@@ -29,6 +29,8 @@ target shape.
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
 - Neon Function deployment
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
+- Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
+- `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
 
 ## Deferred
 
