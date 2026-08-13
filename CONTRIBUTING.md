@@ -33,6 +33,42 @@ and lint fixes.
 Keep pure decisions in the functional core and I/O in the imperative shell. Put each independent
 feature in its own directory under `lib/`.
 
+## Where `auth.md` lives
+
+`auth.md` is served on this service origin, next to the OAuth well-known documents:
+
+```text
+GET https://claimable.neon.tech/auth.md
+GET https://claimable.neon.tech/.well-known/oauth-protected-resource
+GET https://claimable.neon.tech/.well-known/oauth-authorization-server
+```
+
+The [auth.md spec](https://workos.com/auth-md/docs/auth-md) hosts the file at the **service root**
+(`https://service.example.com/auth.md`). `agent_auth.skill` points at that file. Product copy that
+is not needed to register or call the API belongs in main documentation, not in `auth.md`.
+
+Do not put `auth.md` on neon.com. neon.com is the docs host, not the resource or authorization
+server. `https://neon.com/auth.md` would describe registration against neon.com.
+
+neon.com holds a **pointer**, not a copy (a second copy would drift from the live protocol file):
+
+```text
+GET https://neon.com/docs/llms.txt
+GET https://neon.com/docs/reference/claimable-postgres.md
+GET https://claimable.neon.tech/auth.md
+```
+
+Those are two different `llms.txt` files. Do not merge them:
+
+| URL | Job |
+|---|---|
+| `https://neon.com/docs/llms.txt` | Neon docs catalog. Lists Claimable Postgres. |
+| `https://claimable.neon.tech/llms.txt` | Origin index ([llmstxt.org](https://llmstxt.org)) so an agent that already found this host can find `/auth.md` without guessing. |
+
+The live neon.com Claimable Postgres page still documents neon.new
+(`POST https://neon.new/api/v1/database`) and does not yet link to
+`https://claimable.neon.tech/auth.md`.
+
 ## Security and API invariants
 
 - The service holds each project-scoped Neon API key. It must never return one to a caller.

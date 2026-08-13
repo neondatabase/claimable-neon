@@ -12,6 +12,11 @@ The service is not deployed yet; https://neon.new remains the live product.
 
 Live neon.new docs: https://neon.com/docs/reference/claimable-postgres
 
+https://claimable.neon.tech/auth.md is the protocol file (same origin as the API and the OAuth
+well-known documents). https://neon.com/docs/reference/claimable-postgres is the human product
+page; it should link to that file, not copy it. Do not host auth.md on neon.com.
+The spec puts it at the service root: https://workos.com/auth-md/docs/auth-md
+
 ## How an agent moves through the system
 
 ```text
