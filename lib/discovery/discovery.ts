@@ -92,6 +92,7 @@ assertion, and pull env. Do not run \`neon auth\` — that needs a human Neon ac
 
 \`\`\`bash
 npm i -g neon@latest
+npx skills add neondatabase/agent-skills -s neon -s neon-postgres
 \`\`\`
 
 https://neon.com/docs/cli/install.md

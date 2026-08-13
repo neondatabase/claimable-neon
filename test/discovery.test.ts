@@ -50,6 +50,9 @@ describe("auth.md discovery", () => {
 		expect(markdown).toContain(`${origin}/llms.txt`);
 		expect(markdown).toContain(`${origin}/auth.md`);
 		expect(markdown).toContain("npm i -g neon@latest");
+		expect(markdown).toContain(
+			"npx skills add neondatabase/agent-skills -s neon -s neon-postgres",
+		);
 		expect(markdown).toContain("https://neon.com/docs/cli/install.md");
 		expect(markdown).toContain("https://neon.com/docs/reference/neon-ts.md");
 		expect(markdown).toContain("neon claim create");
