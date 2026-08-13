@@ -143,6 +143,8 @@ tests for the functional core and real infrastructure for I/O behavior.
 
 ## Before committing
 
+Pre-launch: commit on `main` and push. Do not open a pull request unless asked. See AGENTS.md.
+
 ```bash
 bun run typecheck && bun run test && bun run lint
 ! rg -q "npm-proxy\.cloud\.databricks\.com" bun.lock

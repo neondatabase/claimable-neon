@@ -54,6 +54,12 @@ A service that provisions unclaimed Neon projects for AI agents and issues `auth
 for them. It sits in the request path of every authorized call, which makes it an availability
 dependency and the reason the proxied surface is kept deliberately small.
 
+## Ship rule (pre-launch)
+
+Work on `main`. Commit, push, no pull request. This overrides the global PR default in brain
+`AGENTS.md`. The service is not launched; there is no review gate and GitHub Actions are disabled
+at the org. Open a PR only when asked.
+
 ## Non-negotiable rules
 
 **This service talks to production Neon.** There is no staging control plane. Provisioning creates
