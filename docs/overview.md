@@ -90,3 +90,76 @@ Two pull requests. The service itself went to `main` as commits between them.
 
 Still open: Neon Function deployment, a dedicated https://track.neon.tech write key, and automatic
 deletion of expired unclaimed projects (blocked on Functions cron).
+
+## Appendix: Deprecating neon.new
+
+Deprecate the Instagres **backend**, not the https://neon.new **hostname**. The APIs are not
+substitutable, Claimable Neon is not deployed, and most callers only want a `DATABASE_URL`.
+
+### What has to move
+
+| Surface | Contract today |
+|---|---|
+| https://neon.new | `POST https://neon.new/api/v1/database` → `connection_string` + `claim_url`. Transfer starts at create with no `ttl_seconds` |
+| https://www.npmjs.com/package/neon-new and https://www.npmjs.com/package/vite-plugin-neon-new | Same HTTP API. Aliases `get-db` / `neondb` already warn |
+| `claimable-postgres` agent skill | curl to that POST, write `.env`, keep `claim_url` for 72 hours |
+| https://pg.new and https://instagres.com | same product, other hostnames |
+| neon CLI / `neon.ts` | not built. This is the client Claimable Neon is for |
+
+A redirect from `POST /api/v1/database` to `POST /v1/agent/identity` would break every one of
+those. https://auth.md is two round-trips and a JWT; neon.new is one POST.
+
+### Two products, not a cutover
+
+1. **Instant URL** — `npx neon-new`, the skill, the website. One POST, `DATABASE_URL` in `.env`,
+   claim in a browser later. Stays on https://neon.new
+2. **Agent with a Neon project** — identity assertion, allowlisted Management API, `neon deploy` /
+   `neon.ts`, claim as a ceremony. Talks to https://claimable.neon.tech
+
+Forcing curl users through JWT bearer is how this migration fails.
+
+### Compatibility skin
+
+Once Claimable Neon is deployed, neon.new becomes a skin over it:
+
+- `POST https://neon.new/api/v1/database` stays. Internally: anonymous register +
+  `GET /v1/databases/{id}/credentials`.
+- Response shape stays (`connection_string`, `claim_url`, `expires_at`, `neon_project_id`).
+- `claim_url` stays `https://neon.new/claim/{id}` as a **bookmark**, not a standing transfer. First
+  visit starts the Claimable Neon ceremony (mint code, tear down, redirect to console). That keeps
+  `npx neon-new claim` and the 72-hour “open this URL” promise without copying the 24-hour transfer
+  bug.
+- `GET https://neon.new/api/v1/database/{id}` maps `unclaimed|pending|accepted|reconciled` onto
+  `UNCLAIMED|CLAIMING|CLAIMED`. `connection_string` is null after `reconciled`.
+- Claim prep still rotates passwords. Old URIs in `.env` die at claim.
+
+Do **not** mint a transfer at create inside the skin. In-flight Instagres projects are not
+migrated. 72 hours of burn-down, then that org is empty of new work.
+
+`POST /api/v1/database` is a permanent skin, not a temporary bridge. It can stay as long as agents
+paste that curl. The deprecation is Instagres, Airbyte-from-`projects`, and `startTransfer` at
+provision — not the neon.new URL.
+
+### Sequence
+
+0. **Preconditions.** Neon Function + https://claimable.neon.tech, dedicated service user in the
+   unclaimed org, `ANALYTICS_WRITE_KEY` so new vs old creates are visible. Nothing public moves
+   before these exist.
+1. **Dual-run, native clients first.** Point the skill’s agent path and the neon CLI at
+   https://claimable.neon.tech. Leave `POST https://neon.new/api/v1/database` on Instagres until the
+   skin is live.
+2. **Flip the skin.** neon.new, npm `neon-new`, and the Vite plugin keep their APIs; creates land
+   in Claimable Neon. Users should not notice except that claim after 24 hours starts working.
+3. **Stop creating in Instagres.** Let the old unclaimed org expire. Do not copy rows.
+4. **Optional later.** Teach `neon-new` an auth.md mode, or make the neon CLI the default for
+   anything that isn’t “just a URL.” Docs split: neon.new for instant Postgres, claimable.neon.tech
+   for agents.
+
+### What not to do
+
+- Update the skill to auth.md while https://claimable.neon.tech 404s.
+- Keep `startTransfer` at create “for compatibility.”
+- Require a human to pick a new URL in every README in week one.
+- Treat neon CLI integration as the migration. It is the new product. The migration is the skin.
+- Put a sunset date on `POST /api/v1/database` in the same breath as the Instagres shutdown.
+
