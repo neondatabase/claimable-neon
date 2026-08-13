@@ -48,6 +48,7 @@ export type Registration = {
 	issuanceFrozen: boolean;
 	revokedAt: Date | null;
 	revokedReason: string | null;
+	source: string;
 };
 
 type RegistrationRow = {
@@ -69,6 +70,7 @@ type RegistrationRow = {
 	issuance_frozen: boolean;
 	revoked_at: Date | null;
 	revoked_reason: string | null;
+	source: string;
 };
 
 const toRegistration = (row: RegistrationRow): Registration => ({
@@ -90,6 +92,7 @@ const toRegistration = (row: RegistrationRow): Registration => ({
 	issuanceFrozen: row.issuance_frozen,
 	revokedAt: row.revoked_at,
 	revokedReason: row.revoked_reason,
+	source: row.source,
 });
 
 export const connect = (databaseUrl: string): Sql =>
@@ -141,6 +144,7 @@ export type CreateRegistrationInput = {
 	roleName: string;
 	scopes: readonly Scope[];
 	expiresAt: Date;
+	source: string;
 };
 
 export const createRegistration = async (
@@ -151,12 +155,12 @@ export const createRegistration = async (
 		insert into registrations (
 			id, identity_type, asserted_subject, asserted_issuer,
 			neon_project_id, neon_org_id, neon_branch_id, database_name, role_name,
-			scopes, expires_at
+			scopes, expires_at, source
 		) values (
 			${input.id}, ${input.identityType}, ${input.assertedSubject ?? null},
 			${input.assertedIssuer ?? null}, ${input.neonProjectId}, ${input.neonOrgId},
 			${input.neonBranchId}, ${input.databaseName}, ${input.roleName},
-			${textArray(sql, input.scopes)}, ${input.expiresAt}
+			${textArray(sql, input.scopes)}, ${input.expiresAt}, ${input.source}
 		)
 		returning *`;
 	if (!row) {
@@ -673,4 +677,34 @@ export const completeClaimReconciliation = async (
 				completed_at = coalesce(completed_at, now())
 			where id = ${input.attemptId}`;
 	});
+};
+
+export type UsageEventName =
+	| "registration_created"
+	| "token_issued"
+	| "claim_started"
+	| "claim_reconciled"
+	| "proxy_call"
+	| "credentials_read"
+	| "registration_deleted";
+
+export const recordUsageEvent = async (
+	sql: Sql,
+	input: {
+		event: UsageEventName;
+		source?: string | undefined;
+		registrationId?: string | undefined;
+		projectId?: string | undefined;
+		properties?: postgres.JSONValue | undefined;
+	},
+): Promise<void> => {
+	await sql`
+		insert into usage_events (event, source, registration_id, project_id, properties)
+		values (
+			${input.event},
+			${input.source ?? null},
+			${input.registrationId ?? null},
+			${input.projectId ?? null},
+			${sql.json(input.properties ?? {})}
+		)`;
 };

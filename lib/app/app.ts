@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import type { Analytics } from "../analytics/analytics.ts";
 import {
 	REQUIRES_CLAIM,
 	decideCapabilities,
@@ -32,6 +33,7 @@ import { type Operation, matchOperation, projectResponse } from "../proxy/allowl
 import {
 	type Registration,
 	type Sql,
+	type UsageEventName,
 	createClaimAttempt,
 	createRegistration,
 	deleteRegistration,
@@ -46,6 +48,7 @@ import {
 	recordCapabilityRequests,
 	recordDerivedCredential,
 	recordToken,
+	recordUsageEvent,
 	requireUsableRegistration,
 	revokeAllTokens,
 	revokeRegistration,
@@ -106,6 +109,41 @@ export type AppDependencies = {
 	sql: Sql;
 	signingKey: SigningKey;
 	orgClient: NeonClient;
+	analytics: Analytics;
+};
+
+const emitUsage = async (
+	dependencies: AppDependencies,
+	event: UsageEventName,
+	fields: {
+		source?: string;
+		registrationId?: string;
+		projectId?: string;
+		method?: string;
+		pattern?: string;
+		identityType?: string;
+	},
+): Promise<void> => {
+	const properties: Record<string, string> = {};
+	if (fields.source !== undefined) properties.source = fields.source;
+	if (fields.method !== undefined) properties.method = fields.method;
+	if (fields.pattern !== undefined) properties.pattern = fields.pattern;
+	if (fields.identityType !== undefined) properties.identity_type = fields.identityType;
+	await recordUsageEvent(dependencies.sql, {
+		event,
+		source: fields.source,
+		registrationId: fields.registrationId,
+		projectId: fields.projectId,
+		properties,
+	});
+	const trackProperties: Record<string, string> = { ...properties };
+	if (fields.registrationId !== undefined) {
+		trackProperties.registration_id = fields.registrationId;
+	}
+	if (fields.projectId !== undefined) {
+		trackProperties.project_id = fields.projectId;
+	}
+	dependencies.analytics.track(event, trackProperties);
 };
 
 type Variables = {
@@ -524,6 +562,11 @@ const getClaimStatus = async (
 	if (state === "accepted") {
 		await reconcileAcceptedClaim(dependencies, registration, attempt, claimedIntoOrg);
 		state = "reconciled";
+		await emitUsage(dependencies, "claim_reconciled", {
+			source: registration.source,
+			registrationId: registration.id,
+			projectId: registration.neonProjectId,
+		});
 	}
 	return {
 		state,
@@ -637,6 +680,13 @@ const proxyManagementRequest = async (
 	const data = matched.operation.project
 		? projectResponse(response.data, matched.operation.project)
 		: response.data;
+	await emitUsage(dependencies, "proxy_call", {
+		source: authenticated.registration.source,
+		registrationId: authenticated.registration.id,
+		projectId: authenticated.registration.neonProjectId,
+		method: request.method,
+		pattern: matched.operation.pattern,
+	});
 	return new Response(response.status === 204 ? null : JSON.stringify(data), {
 		status: response.status,
 		headers: {
@@ -651,8 +701,12 @@ export const createApp = (dependencies: AppDependencies) => {
 
 	app.use("*", async (context, next) => {
 		context.set("requestId", context.req.header("x-request-id") ?? randomUUID());
-		await next();
-		context.header("x-request-id", context.get("requestId"));
+		try {
+			await next();
+		} finally {
+			context.header("x-request-id", context.get("requestId"));
+			await dependencies.analytics.flush();
+		}
 	});
 
 	app.get("/health", (context) =>
@@ -727,6 +781,7 @@ export const createApp = (dependencies: AppDependencies) => {
 				roleName: project.roleName,
 				scopes,
 				expiresAt,
+				source: request.source,
 			});
 			await storeProjectKey(dependencies.sql, {
 				registrationId,
@@ -764,6 +819,12 @@ export const createApp = (dependencies: AppDependencies) => {
 				registrationId,
 				source: request.source,
 				decisions,
+			});
+			await emitUsage(dependencies, "registration_created", {
+				source: request.source,
+				registrationId,
+				projectId: project.projectId,
+				identityType: request.type,
 			});
 
 			return context.json(
@@ -839,6 +900,11 @@ export const createApp = (dependencies: AppDependencies) => {
 			kind: "access",
 			scopes: accessScopes,
 			expiresAt: access.expiresAt,
+		});
+		await emitUsage(dependencies, "token_issued", {
+			source: registration.source,
+			registrationId: registration.id,
+			projectId: registration.neonProjectId,
 		});
 		return context.json({
 			access_token: access.token,
@@ -1013,6 +1079,11 @@ export const createApp = (dependencies: AppDependencies) => {
 			await freezeIssuance(lockedSql, currentRegistration.id);
 			await setClaimState(lockedSql, currentRegistration.id, "pending");
 			await prepareClaimTransfer(lockedDependencies, currentRegistration);
+			await emitUsage(lockedDependencies, "claim_started", {
+				source: currentRegistration.source,
+				registrationId: currentRegistration.id,
+				projectId: currentRegistration.neonProjectId,
+			});
 			const destination = new URL(lockedDependencies.config.consoleClaimUrl);
 			destination.searchParams.set("p", currentRegistration.neonProjectId);
 			destination.searchParams.set("tr", transferRequestId);
@@ -1083,6 +1154,11 @@ export const createApp = (dependencies: AppDependencies) => {
 					scopes: ["postgres.read", "postgres.write"],
 					expiresAt: registration.expiresAt,
 				});
+				await emitUsage(lockedDependencies, "credentials_read", {
+					source: registration.source,
+					registrationId: registration.id,
+					projectId: projectId,
+				});
 				const storedServices = await getServiceCredentials(
 					lockedDependencies.sql,
 					registration.id,
@@ -1135,6 +1211,11 @@ export const createApp = (dependencies: AppDependencies) => {
 					registration.id,
 					"deleted_by_agent",
 				);
+				await emitUsage(lockedDependencies, "registration_deleted", {
+					source: registration.source,
+					registrationId: registration.id,
+					projectId: projectId,
+				});
 				return context.body(null, 204);
 			},
 		);

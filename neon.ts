@@ -16,6 +16,7 @@ export default defineConfig({
 					NEON_ORG_ID: process.env.NEON_ORG_ID ?? "",
 					TOKEN_SIGNING_KEY: process.env.TOKEN_SIGNING_KEY ?? "",
 					KEY_ENCRYPTION_KEY: process.env.KEY_ENCRYPTION_KEY ?? "",
+					ANALYTICS_WRITE_KEY: process.env.ANALYTICS_WRITE_KEY ?? "",
 					PROJECT_TTL_SECONDS: process.env.PROJECT_TTL_SECONDS ?? String(72 * 60 * 60),
 					PROJECT_NAME_PREFIX: process.env.PROJECT_NAME_PREFIX ?? "claimable",
 				},
