@@ -16,7 +16,7 @@ target shape.
 | Signing key load/import/export | `lib/tokens/keys.ts` | `test/tokens.test.ts` |
 | Project-key encryption at rest | `lib/crypto/project-keys.ts` | `test/project-keys.test.ts` |
 | Configuration validation and localhost-only user-key guard | `lib/config/config.ts` | `test/config.test.ts` |
-| auth.md and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
+| auth.md, llms.txt, and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
 | Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |

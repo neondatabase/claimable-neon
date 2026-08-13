@@ -62,11 +62,17 @@ API. The API records the request and returns `requires_claim` with the service-s
 Discovery lives at the root; everything else is under `/v1`.
 
 ```http
+GET  /llms.txt
 GET  /auth.md
 GET  /.well-known/oauth-protected-resource
 GET  /.well-known/oauth-authorization-server
 GET  /.well-known/jwks.json
 ```
+
+`llms.txt` points at `auth.md`. `auth.md` is the protocol. The authorization-server document
+names `identity_endpoint`, `token_endpoint`, and `claim_endpoint`. Agents arriving from Neon
+docs start at https://neon.com/docs/llms.txt → https://neon.com/docs/reference/claimable-postgres.md
+→ https://claimable.neon.tech/auth.md
 
 Register, then exchange the assertion for an access token:
 

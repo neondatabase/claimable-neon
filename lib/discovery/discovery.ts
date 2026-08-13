@@ -29,6 +29,20 @@ export const authorizationServerMetadata = (origin: string) => {
 	};
 };
 
+export const llmsTxt = (origin: string): string => {
+	const base = originWithoutTrailingSlash(origin);
+	return `# Claimable Neon
+
+> Temporary Neon projects for AI agents. No human signup. A human can claim the project later.
+
+Agents start here, then read auth.md. Do not guess the API.
+
+- [${base}/auth.md](${base}/auth.md): register, token exchange, credentials, Management API proxy, claim
+- [${base}/.well-known/oauth-authorization-server](${base}/.well-known/oauth-authorization-server): identity_endpoint, token_endpoint, claim_endpoint
+- [${base}/.well-known/oauth-protected-resource](${base}/.well-known/oauth-protected-resource)
+`;
+};
+
 export const authMarkdown = (origin: string): string => {
 	const base = originWithoutTrailingSlash(origin);
 	return `# Claimable Neon for agents
@@ -39,12 +53,28 @@ their Neon organization.
 
 ## Discover
 
-Read the OAuth metadata before using the API:
+Start at \`llms.txt\`, then this document. Do not guess \`POST /v1/agent/identity\`.
+
+From Neon docs:
 
 \`\`\`text
+https://neon.com/docs/llms.txt
+https://neon.com/docs/reference/claimable-postgres.md
+${base}/llms.txt
+${base}/auth.md
+\`\`\`
+
+From this origin:
+
+\`\`\`text
+${base}/llms.txt
+${base}/auth.md
 ${base}/.well-known/oauth-protected-resource
 ${base}/.well-known/oauth-authorization-server
 \`\`\`
+
+The authorization-server document's \`agent_auth.skill\` is this file. \`identity_endpoint\` is
+where you register. \`claim_endpoint\` starts a claim with the identity assertion.
 
 ## Register anonymously
 

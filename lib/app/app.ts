@@ -16,6 +16,7 @@ import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts"
 import {
 	authMarkdown,
 	authorizationServerMetadata,
+	llmsTxt,
 	protectedResourceMetadata,
 } from "../discovery/discovery.ts";
 import { ServiceError, isServiceError, toServiceError } from "../errors/errors.ts";
@@ -711,6 +712,9 @@ export const createApp = (dependencies: AppDependencies) => {
 
 	app.get("/health", (context) =>
 		context.json({ status: "ok", service: "claimable-neon" }),
+	);
+	app.get("/llms.txt", (context) =>
+		context.text(llmsTxt(dependencies.config.publicOrigin)),
 	);
 	app.get("/auth.md", (context) =>
 		context.text(authMarkdown(dependencies.config.publicOrigin)),

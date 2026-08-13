@@ -129,9 +129,15 @@ const discoverFromWebsite = async () => {
 	expect(docs).toContain("claim create --env-pull");
 	expect(docs).toContain("/v1/agent/identity");
 
+	const serviceLlmsResponse = await fetch(`${serviceBaseUrl}/llms.txt`);
+	expect(serviceLlmsResponse.status).toBe(200);
+	const serviceLlms = await serviceLlmsResponse.text();
+	expect(serviceLlms).toContain(`${serviceBaseUrl}/auth.md`);
+
 	const authMarkdownResponse = await fetch(`${serviceBaseUrl}/auth.md`);
 	expect(authMarkdownResponse.status).toBe(200);
 	const authMarkdown = await authMarkdownResponse.text();
+	expect(authMarkdown).toContain(`${serviceBaseUrl}/llms.txt`);
 	expect(authMarkdown).toContain(`${serviceBaseUrl}/v1/agent/identity`);
 	expect(authMarkdown).toContain(
 		`${serviceBaseUrl}/v1/projects/<project_id>/credentials`,

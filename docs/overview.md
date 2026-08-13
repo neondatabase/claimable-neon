@@ -17,7 +17,15 @@ Live neon.new docs: https://neon.com/docs/reference/claimable-postgres
 ```text
 agent
   │
-  │  1. POST /v1/agent/identity
+  │  1. GET https://neon.com/docs/llms.txt
+  │     follow Claimable Postgres → https://neon.com/docs/reference/claimable-postgres.md
+  │     or GET https://claimable.neon.tech/llms.txt
+  ▼
+  │  2. GET https://claimable.neon.tech/auth.md
+  │     GET https://claimable.neon.tech/.well-known/oauth-authorization-server
+  │     (identity_endpoint, token_endpoint, claim_endpoint)
+  ▼
+  │  3. POST /v1/agent/identity
   │     { "type": "anonymous", "capabilities": ["postgres", …] }
   ▼
 claimable-neon
@@ -25,16 +33,16 @@ claimable-neon
   │  mints a project-scoped napi_… and keeps it
   │  returns identity_assertion (the durable secret) + project.id
   │
-  │  2. POST /v1/oauth2/token
+  │  4. POST /v1/oauth2/token
   │     grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
   ▼
   │  returns access_token (short-lived, scoped, revocable)
   │
-  │  3. GET /v1/projects/{id}/credentials      → DATABASE_URL
+  │  5. GET /v1/projects/{id}/credentials      → DATABASE_URL
   │     GET/PATCH/POST /v1/projects/{id}/…     → allowlisted Management API
   │     DELETE /v1/projects/{id}               → tear down
   │
-  │  4. POST /v1/projects/{id}/claim            → user_code + verification_uri
+  │  6. POST /v1/projects/{id}/claim            → user_code + verification_uri
   │     (or POST /v1/agent/identity/claim with the assertion)
   ▼
 human
@@ -42,7 +50,7 @@ human
   │  service revokes pre-claim access, then redirects to the Neon console
   │  human signs in and accepts the project transfer
   │
-  │  5. GET /v1/projects/{id}/claim             → poll until reconciled
+  │  7. GET /v1/projects/{id}/claim             → poll until reconciled
   ▼
 project now lives in the human's org; the assertion is revoked
 ```
