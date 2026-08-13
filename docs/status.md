@@ -48,7 +48,7 @@ mode on any non-localhost origin.
 full `claim` object with a `user_code`, which implies the transfer request already exists. That
 reintroduces two problems at once: a standing accept-able offer for the project's whole life, and a
 registration response whose possession is equivalent to possession of the project. Registration
-returns no claim object. `POST /v1/databases/{id}/claim` creates a short-lived human code; browser
+returns no claim object. `POST /v1/projects/{id}/claim` creates a short-lived human code; browser
 redemption creates one transfer request for that attempt.
 
 **Capability and scope names are uniformly snake_case, and a scope is always

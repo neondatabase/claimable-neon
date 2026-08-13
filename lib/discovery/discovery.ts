@@ -81,7 +81,7 @@ identity assertion when the access token expires.
 ## Pull credentials
 
 \`\`\`http
-GET ${base}/v1/databases/<project_id>/credentials
+GET ${base}/v1/projects/<project_id>/credentials
 Authorization: Bearer <access_token>
 \`\`\`
 
@@ -117,7 +117,7 @@ neon branches list
 Create a short-lived human claim code when the project is ready to keep:
 
 \`\`\`http
-POST ${base}/v1/databases/<project_id>/claim
+POST ${base}/v1/projects/<project_id>/claim
 Authorization: Bearer <access_token>
 \`\`\`
 
@@ -137,7 +137,7 @@ grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<identity_asser
 Retain that access token and poll at the returned \`interval\`:
 
 \`\`\`http
-GET ${base}/v1/databases/<project_id>/claim
+GET ${base}/v1/projects/<project_id>/claim
 Authorization: Bearer <claim_status_access_token>
 \`\`\`
 
@@ -153,7 +153,7 @@ Auth integration and its database data; the recipient can enable a new integrati
 Delete an unclaimed project:
 
 \`\`\`http
-DELETE ${base}/v1/databases/<project_id>
+DELETE ${base}/v1/projects/<project_id>
 Authorization: Bearer <access_token>
 \`\`\`
 

@@ -37,9 +37,9 @@ describe("auth.md discovery", () => {
 		const markdown = authMarkdown(origin);
 
 		expect(markdown).toContain('["postgres","data_api","auth"]');
-		expect(markdown).toContain(`${origin}/v1/databases/<project_id>/credentials`);
+		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/credentials`);
 		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/...`);
-		expect(markdown).toContain(`${origin}/v1/databases/<project_id>/claim`);
+		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/claim`);
 		expect(markdown).toContain("verification_uri_complete");
 		expect(markdown).toContain("capability_requires_claim");
 		expect(markdown).toContain("error.code");
