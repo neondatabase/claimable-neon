@@ -2,6 +2,11 @@ import { SCOPES } from "../capabilities/scopes.ts";
 
 const originWithoutTrailingSlash = (origin: string): string => origin.replace(/\/+$/, "");
 
+// auth.md is served on this origin (resource + authorization server), not on neon.com.
+// Spec: https://workos.com/auth-md/docs/auth-md
+// neon.com/docs holds a pointer. /llms.txt here is an origin index, not a copy of
+// https://neon.com/docs/llms.txt. See CONTRIBUTING.md.
+
 export const protectedResourceMetadata = (origin: string) => {
 	const base = originWithoutTrailingSlash(origin);
 	return {
@@ -54,6 +59,9 @@ their Neon organization.
 ## Discover
 
 Start at \`llms.txt\`, then this document. Do not guess \`POST /v1/agent/identity\`.
+
+This file is hosted on this origin, next to the OAuth well-known documents. neon.com holds the
+product page and a pointer here. Do not look for \`/auth.md\` on neon.com.
 
 From Neon docs:
 

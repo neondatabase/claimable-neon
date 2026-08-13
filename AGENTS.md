@@ -16,6 +16,11 @@ GET https://claimable.neon.tech/auth.md
 
 `llms.txt` lists Claimable Postgres. That page points at `auth.md` on this origin.
 
+`auth.md` stays on this origin, next to the OAuth well-known documents. neon.com links to it; it
+does not host it. `https://neon.com/docs/llms.txt` is the docs catalog;
+`https://claimable.neon.tech/llms.txt` is this origin's index. Do not merge them or move
+`/auth.md` to neon.com. The split and the spec citation are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 From this origin directly:
 
 ```text

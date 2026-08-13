@@ -1,16 +1,51 @@
 # Claimable Neon, high level
 
-Claimable Neon is the successor to the service behind https://neon.new. An AI agent gets a
-temporary Lakebase Postgres database on Neon without a human signing up first. A human can later
-claim that project into a Neon organization.
+Claimable Neon replaces the **Instagres backend** behind https://neon.new. It does not replace that
+hostname. https://neon.new stays; the new agent API is https://claimable.neon.tech.
 
-The agent never receives a Neon API key. It receives an https://auth.md identity assertion,
-exchanges it for a short-lived access token, and this service sits on every authorized call.
+## Status
 
-Target origin: https://claimable.neon.tech/v1
-The service is not deployed yet; https://neon.new remains the live product.
+| | Status |
+|---|---|
+| https://neon.new Instagres backend | Live. To be deprecated. |
+| https://neon.new hostname and `POST https://neon.new/api/v1/database` | Staying. Later a skin over Claimable Neon. |
+| https://claimable.neon.tech | Built in this repo. Not deployed. |
+| https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. Does not yet point at https://claimable.neon.tech/auth.md. |
+| Instant-URL skin, dual-run, Instagres burn-down | Plan only. Appendix below. |
+| Neon Function deploy, dedicated https://track.neon.tech write key, expiry janitor | Open. Blockers for going live. |
 
-Live neon.new docs: https://neon.com/docs/reference/claimable-postgres
+## Current behavior
+
+Live product: one unauthenticated `POST https://neon.new/api/v1/database` with `{ "ref": "…" }`
+returns `connection_string` and `claim_url`. No account. Unclaimed databases expire in 72 hours
+(100 MB storage, 1 GB transfer). Docs: https://neon.com/docs/reference/claimable-postgres
+
+Claim starts at create. neon.new opens a Neon transfer with no `ttl_seconds`, so the request expires
+after 24 hours and hours 24–72 are unclaimable. The agent holds a password in `.env`. That create
+path has no Management API, no Auth, and no Data API.
+
+## New behavior
+
+Not deployed. Target: https://claimable.neon.tech
+
+An agent starts at https://claimable.neon.tech/auth.md — the protocol file on the service origin,
+next to the OAuth well-known documents. neon.com holds a pointer, not a copy; do not host auth.md
+on neon.com. Spec: https://workos.com/auth-md/docs/auth-md
+
+The agent registers anonymously, exchanges an https://auth.md identity assertion for a short-lived
+access token, and this service sits on every authorized call. It never receives a Neon API key.
+Credentials and an allowlisted Management API come after the token. A human claims with a
+short-lived code; the Neon transfer is created then, not at provision.
+
+`POST https://neon.new/api/v1/database` stays as a skin once this is live. Instant-URL users do not
+move to JWT bearer.
+
+## Motivation
+
+neon.new vends a connection string. Agents that need a Neon project — proxy, Auth, Data API,
+revocable credentials, claim when a human is ready — cannot use that shape. Starting the transfer
+at create is what makes hours 24–72 unclaimable. A project-scoped Neon API key that can read a
+project can also delete it, so it cannot be the credential the agent holds.
 
 ## How an agent moves through the system
 
