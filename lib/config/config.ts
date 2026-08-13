@@ -72,8 +72,9 @@ const schema = z.object({
 
 	LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 	/**
-	 * Segment write key for `https://track.neon.tech`. Optional: without it, Segment is a
-	 * no-op and usage still lands in `usage_events` for the warehouse ingest.
+	 * Write key for `https://track.neon.tech` (analytics-events → Zerobus). Optional: without
+	 * it, track is a no-op. `usage_events` still records locally; the warehouse path is the
+	 * live stream, same as CLI and MCP.
 	 */
 	ANALYTICS_WRITE_KEY: z
 		.string()

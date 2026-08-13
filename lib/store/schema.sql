@@ -172,8 +172,8 @@ create index if not exists rate_counters_window_idx on rate_counters (window_sta
 alter table registrations
     add column if not exists source text not null default 'raw_api';
 
--- Request-level usage. The Orbit ingest rolls this up into prod.product.claimable_neon_*.
--- Segment is the live stream; this table is the durable source of truth, matching neon.new.
+-- Request-level usage kept in the state database for local ops and debugging.
+-- The warehouse path is `https://track.neon.tech` (Zerobus), same as CLI and MCP.
 create table if not exists usage_events (
     id                bigserial primary key,
     event             text        not null,

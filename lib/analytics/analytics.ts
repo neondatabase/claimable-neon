@@ -1,16 +1,21 @@
 /**
  * Product analytics.
  *
- * CLI and MCP send Segment events to `https://track.neon.tech` (a Segment-compatible
- * proxy). This service does the same HTTP `POST /v1/track` so usage lands in the same
- * pipeline once a dedicated write key exists. Until `ANALYTICS_WRITE_KEY` is set, track
- * is a no-op; the durable record is `usage_events` in the state database.
+ * Same client as CLI and MCP: `@segment/analytics-node` pointed at
+ * `https://track.neon.tech`. That host is the analytics-events service, which
+ * dual-writes to Databricks Zerobus (and, while the sunset runs, Segment).
  *
- * A Segment failure must not fail a request. The warehouse rollup reads Postgres, not
- * the live stream.
+ * Until `ANALYTICS_WRITE_KEY` is set to a key listed in analytics-events
+ * `accepted_write_keys`, track is a no-op. `usage_events` in the state database
+ * is local durability, not the warehouse path.
+ *
+ * An analytics failure must not fail a request. Flush on every response
+ * (`flushAt: 1` is not a substitute for the request-end barrier on a Function).
  */
 
-const TRACK_URL = "https://track.neon.tech/v1/track";
+import { Analytics as SegmentAnalytics } from "@segment/analytics-node";
+
+const TRACK_HOST = "https://track.neon.tech";
 const ANONYMOUS = "anonymous";
 
 export type Analytics = {
@@ -23,53 +28,35 @@ const silentAnalytics: Analytics = {
 	flush: async () => {},
 };
 
-const basicAuth = (writeKey: string): string =>
-	`Basic ${Buffer.from(`${writeKey}:`).toString("base64")}`;
-
 export const createAnalytics = (writeKey: string | undefined): Analytics => {
 	if (writeKey === undefined) {
 		return silentAnalytics;
 	}
 
-	const pending = new Set<Promise<void>>();
-
-	const send = async (
-		event: string,
-		properties: Record<string, string | number | boolean> | undefined,
-	): Promise<void> => {
-		const response = await fetch(TRACK_URL, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: basicAuth(writeKey),
-			},
-			body: JSON.stringify({
-				userId: ANONYMOUS,
-				event,
-				properties,
-				timestamp: new Date().toISOString(),
-			}),
-		});
-		if (!response.ok) {
-			const body = await response.text();
-			console.error(
-				`claimable-neon analytics track failed: HTTP ${response.status} ${body}`,
-			);
-		}
-	};
+	const client = new SegmentAnalytics({
+		writeKey,
+		host: TRACK_HOST,
+		flushAt: 1,
+	});
 
 	return {
 		track: (event, properties) => {
-			const run = send(event, properties).catch((error: unknown) => {
+			try {
+				client.track({
+					userId: ANONYMOUS,
+					event,
+					properties,
+				});
+			} catch (error: unknown) {
 				console.error("claimable-neon analytics track failed:", error);
-			});
-			pending.add(run);
-			void run.finally(() => {
-				pending.delete(run);
-			});
+			}
 		},
 		flush: async () => {
-			await Promise.all([...pending]);
+			try {
+				await client.flush();
+			} catch (error: unknown) {
+				console.error("claimable-neon analytics flush failed:", error);
+			}
 		},
 	};
 };
