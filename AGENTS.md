@@ -1,8 +1,46 @@
 # Agent instructions
 
+An agent consuming this service starts at `llms.txt`, then `auth.md`, then the OAuth metadata
+that names every endpoint. Do not guess `POST /v1/agent/identity`.
+
+## How an agent discovers the flow
+
+From Neon docs:
+
+```text
+GET https://neon.com/docs/llms.txt
+GET https://neon.com/docs/reference/claimable-postgres.md
+GET https://claimable.neon.tech/llms.txt
+GET https://claimable.neon.tech/auth.md
+```
+
+`llms.txt` lists Claimable Postgres. That page points at `auth.md` on this origin.
+
+From this origin directly:
+
+```text
+GET {origin}/llms.txt
+GET {origin}/auth.md
+GET {origin}/.well-known/oauth-protected-resource
+GET {origin}/.well-known/oauth-authorization-server
+```
+
+`agent_auth.skill` is `/auth.md`. `identity_endpoint` is where you register. `claim_endpoint`
+starts a claim with the identity assertion. Then:
+
+```text
+POST /v1/agent/identity
+POST /v1/oauth2/token
+GET  /v1/projects/{id}/credentials
+GET|PATCH|POST /v1/projects/{id}/…     # allowlisted Management API
+POST /v1/projects/{id}/claim           # or POST /v1/agent/identity/claim
+GET  /v1/projects/{id}/claim           # poll until reconciled
+DELETE /v1/projects/{id}
+```
+
 Read [`docs/status.md`](docs/status.md) before answering any question about what this service
 does. The README describes the target API; `status.md` says what actually exists;
-[`docs/overview.md`](docs/overview.md) is the agent flow and the neon.new comparison. Follow
+[`docs/overview.md`](docs/overview.md) is the same agent flow plus the neon.new comparison. Follow
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, architecture, testing, and pre-commit checks.
 
 ## What this is
@@ -47,4 +85,3 @@ or an early return before the insert. The record is the product requirement.
 - No type casts to make something compile. Narrow, or add an assertion function.
 - Errors are `ServiceError` with a code from `lib/errors/errors.ts`. Never throw a bare `Error`
   across a module boundary, and never swallow one.
-

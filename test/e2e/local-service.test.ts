@@ -146,7 +146,7 @@ describe("local Claimable Neon service", () => {
 
 			const credentials = credentialsResponse.parse(
 				await json(
-					await fetch(`${baseUrl}/v1/databases/${projectId}/credentials`, {
+					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
 						headers: authorization,
 					}),
 				),
@@ -217,7 +217,7 @@ describe("local Claimable Neon service", () => {
 
 			const claimCode = claimCodeResponse.parse(
 				await json(
-					await fetch(`${baseUrl}/v1/databases/${projectId}/claim`, {
+					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
 						method: "POST",
 						headers: authorization,
 					}),
@@ -229,7 +229,7 @@ describe("local Claimable Neon service", () => {
 			const claimStatusToken = await exchange(assertion);
 			const claimStatus = claimStatusResponse.parse(
 				await json(
-					await fetch(`${baseUrl}/v1/databases/${projectId}/claim`, {
+					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
 						headers: {
 							authorization: `Bearer ${claimStatusToken}`,
 						},
@@ -247,7 +247,7 @@ describe("local Claimable Neon service", () => {
 				}),
 			});
 			expect(revoke.status).toBe(200);
-			const revokedUse = await fetch(`${baseUrl}/v1/databases/${projectId}`, {
+			const revokedUse = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
 				headers: authorization,
 			});
 			expect(revokedUse.status).toBe(401);
@@ -280,7 +280,7 @@ describe("local Claimable Neon service", () => {
 		}
 
 		cleanupToken ??= await exchange(assertion);
-		const deleted = await fetch(`${baseUrl}/v1/databases/${projectId}`, {
+		const deleted = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
 			method: "DELETE",
 			headers: { authorization: `Bearer ${cleanupToken}` },
 		});

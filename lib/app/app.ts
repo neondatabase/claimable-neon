@@ -16,6 +16,7 @@ import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts"
 import {
 	authMarkdown,
 	authorizationServerMetadata,
+	llmsTxt,
 	protectedResourceMetadata,
 } from "../discovery/discovery.ts";
 import { ServiceError, isServiceError, toServiceError } from "../errors/errors.ts";
@@ -712,6 +713,9 @@ export const createApp = (dependencies: AppDependencies) => {
 	app.get("/health", (context) =>
 		context.json({ status: "ok", service: "claimable-neon" }),
 	);
+	app.get("/llms.txt", (context) =>
+		context.text(llmsTxt(dependencies.config.publicOrigin)),
+	);
 	app.get("/auth.md", (context) =>
 		context.text(authMarkdown(dependencies.config.publicOrigin)),
 	);
@@ -953,7 +957,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		});
 	});
 
-	app.post("/v1/databases/:projectId/claim", async (context) => {
+	app.post("/v1/projects/:projectId/claim", async (context) => {
 		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
@@ -969,7 +973,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		);
 	});
 
-	app.get("/v1/databases/:projectId/claim", async (context) => {
+	app.get("/v1/projects/:projectId/claim", async (context) => {
 		return withClaimStatusLock(
 			context.req.header("authorization"),
 			dependencies,
@@ -1091,33 +1095,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		});
 	});
 
-	app.get("/v1/databases/:projectId", async (context) => {
-		return withAuthenticatedRegistrationLock(
-			context.req.header("authorization"),
-			dependencies,
-			async (authenticated, lockedDependencies) => {
-				const projectId = context.req.param("projectId");
-				requireMatchingProject(authenticated.registration, projectId);
-				const client = await projectClient(
-					lockedDependencies,
-					authenticated.registration,
-				);
-				const response = await client.get(`/projects/${encodeURIComponent(projectId)}`);
-				return context.json(
-					projectResponse(response.data, [
-						"id",
-						"name",
-						"region_id",
-						"created_at",
-						"pg_version",
-						"branch_logical_size_limit_bytes",
-					]),
-				);
-			},
-		);
-	});
-
-	app.get("/v1/databases/:projectId/credentials", async (context) => {
+	app.get("/v1/projects/:projectId/credentials", async (context) => {
 		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,
@@ -1182,7 +1160,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		);
 	});
 
-	app.delete("/v1/databases/:projectId", async (context) => {
+	app.delete("/v1/projects/:projectId", async (context) => {
 		return withAuthenticatedRegistrationLock(
 			context.req.header("authorization"),
 			dependencies,

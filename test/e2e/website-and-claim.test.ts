@@ -129,12 +129,18 @@ const discoverFromWebsite = async () => {
 	expect(docs).toContain("claim create --env-pull");
 	expect(docs).toContain("/v1/agent/identity");
 
+	const serviceLlmsResponse = await fetch(`${serviceBaseUrl}/llms.txt`);
+	expect(serviceLlmsResponse.status).toBe(200);
+	const serviceLlms = await serviceLlmsResponse.text();
+	expect(serviceLlms).toContain(`${serviceBaseUrl}/auth.md`);
+
 	const authMarkdownResponse = await fetch(`${serviceBaseUrl}/auth.md`);
 	expect(authMarkdownResponse.status).toBe(200);
 	const authMarkdown = await authMarkdownResponse.text();
+	expect(authMarkdown).toContain(`${serviceBaseUrl}/llms.txt`);
 	expect(authMarkdown).toContain(`${serviceBaseUrl}/v1/agent/identity`);
 	expect(authMarkdown).toContain(
-		`${serviceBaseUrl}/v1/databases/<project_id>/credentials`,
+		`${serviceBaseUrl}/v1/projects/<project_id>/credentials`,
 	);
 
 	const metadata = authorizationServerMetadata.parse(
@@ -247,7 +253,7 @@ const useProvisionedServices = async (
 	const credentials = credentialsResponse.parse(
 		await responseJson(
 			await fetch(
-				`${serviceBaseUrl}/v1/databases/${registration.project.id}/credentials`,
+				`${serviceBaseUrl}/v1/projects/${registration.project.id}/credentials`,
 				{ headers: authorization },
 			),
 		),
@@ -309,7 +315,7 @@ const startBrowserClaim = async (
 ) => {
 	const claim = claimCodeResponse.parse(
 		await responseJson(
-			await fetch(`${serviceBaseUrl}/v1/databases/${registration.project.id}/claim`, {
+			await fetch(`${serviceBaseUrl}/v1/projects/${registration.project.id}/claim`, {
 				method: "POST",
 				headers: authorization,
 			}),
@@ -361,7 +367,7 @@ const expectPreClaimCredentialsRevoked = async (
 	const oldAuth = await fetch(`${credentials.services.auth.base_url}/token/anonymous`);
 	expect(oldAuth.ok).toBe(false);
 	const oldAccessToken = await fetch(
-		`${serviceBaseUrl}/v1/databases/${registration.project.id}`,
+		`${serviceBaseUrl}/v1/projects/${registration.project.id}`,
 		{ headers: authorization },
 	);
 	expect(oldAccessToken.status).toBe(401);
@@ -399,7 +405,7 @@ const waitForReconciliation = async (
 		);
 		const status = claimStatusResponse.parse(
 			await responseJson(
-				await fetch(`${serviceBaseUrl}/v1/databases/${registration.project.id}/claim`, {
+				await fetch(`${serviceBaseUrl}/v1/projects/${registration.project.id}/claim`, {
 					headers: { authorization: `Bearer ${statusToken}` },
 				}),
 			),
@@ -416,7 +422,7 @@ const expectTerminalStatusRepeatable = async (
 ): Promise<void> => {
 	const status = claimStatusResponse.parse(
 		await responseJson(
-			await fetch(`${serviceBaseUrl}/v1/databases/${registration.project.id}/claim`, {
+			await fetch(`${serviceBaseUrl}/v1/projects/${registration.project.id}/claim`, {
 				headers: { authorization: `Bearer ${statusToken}` },
 			}),
 		),

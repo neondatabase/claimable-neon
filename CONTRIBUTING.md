@@ -85,7 +85,8 @@ The pre-claim suite provisions a real project, uses Postgres, Managed Better Aut
 the scoped management proxy, then deletes the project.
 
 The full claim-ceremony test also starts from the website `llms.txt`, follows the Claimable Postgres
-reference to `auth.md`, accepts the project transfer, waits for reconciliation, and verifies that
+reference to this service's `/llms.txt` and `/auth.md`, accepts the project transfer, waits for
+reconciliation, and verifies that
 the pre-claim database password, service endpoints, assertion, and access tokens no longer work.
 It requires two distinct Neon organizations. The existing Testing organization can remain the
 source; create one dedicated Claimable Neon E2E recipient organization:

@@ -4,6 +4,7 @@ import { SCOPES } from "../lib/capabilities/scopes.ts";
 import {
 	authMarkdown,
 	authorizationServerMetadata,
+	llmsTxt,
 	protectedResourceMetadata,
 } from "../lib/discovery/discovery.ts";
 
@@ -33,13 +34,25 @@ describe("auth.md discovery", () => {
 		});
 	});
 
+	it("indexes auth.md and OAuth metadata from llms.txt", () => {
+		const index = llmsTxt(origin);
+
+		expect(index).toContain(`${origin}/auth.md`);
+		expect(index).toContain(`${origin}/.well-known/oauth-authorization-server`);
+		expect(index).toContain(`${origin}/.well-known/oauth-protected-resource`);
+	});
+
 	it("documents the complete provisioning and claim journey for an agent", () => {
 		const markdown = authMarkdown(origin);
 
+		expect(markdown).toContain("https://neon.com/docs/llms.txt");
+		expect(markdown).toContain("https://neon.com/docs/reference/claimable-postgres.md");
+		expect(markdown).toContain(`${origin}/llms.txt`);
+		expect(markdown).toContain(`${origin}/auth.md`);
 		expect(markdown).toContain('["postgres","data_api","auth"]');
-		expect(markdown).toContain(`${origin}/v1/databases/<project_id>/credentials`);
+		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/credentials`);
 		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/...`);
-		expect(markdown).toContain(`${origin}/v1/databases/<project_id>/claim`);
+		expect(markdown).toContain(`${origin}/v1/projects/<project_id>/claim`);
 		expect(markdown).toContain("verification_uri_complete");
 		expect(markdown).toContain("capability_requires_claim");
 		expect(markdown).toContain("error.code");

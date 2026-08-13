@@ -62,11 +62,17 @@ API. The API records the request and returns `requires_claim` with the service-s
 Discovery lives at the root; everything else is under `/v1`.
 
 ```http
+GET  /llms.txt
 GET  /auth.md
 GET  /.well-known/oauth-protected-resource
 GET  /.well-known/oauth-authorization-server
 GET  /.well-known/jwks.json
 ```
+
+`llms.txt` points at `auth.md`. `auth.md` is the protocol. The authorization-server document
+names `identity_endpoint`, `token_endpoint`, and `claim_endpoint`. Agents arriving from Neon
+docs start at https://neon.com/docs/llms.txt → https://neon.com/docs/reference/claimable-postgres.md
+→ https://claimable.neon.tech/auth.md
 
 Register, then exchange the assertion for an access token:
 
@@ -91,7 +97,7 @@ POST /v1/agent/identity
 
 Registration does not create a transfer request or mint a `user_code`. That is deliberate: a
 transfer request created at provisioning time would remain open for the project's lifetime.
-`POST /v1/databases/{id}/claim` creates a short-lived human code. Redeeming that code removes
+`POST /v1/projects/{id}/claim` creates a short-lived human code. Redeeming that code removes
 pre-claim access, creates the transfer request, and redirects the human to Neon.
 
 ```http
@@ -104,11 +110,11 @@ There are no refresh tokens. When an access token expires, re-exchange the asser
 Resources, all bearer-authenticated:
 
 ```http
-GET    /v1/databases/{id}
-GET    /v1/databases/{id}/credentials
-POST   /v1/databases/{id}/claim     # returns verification_uri_complete + user_code
-GET    /v1/databases/{id}/claim     # poll: pending | accepted | reconciled | expired
-DELETE /v1/databases/{id}
+GET    /v1/projects/{id}               # allowlisted Management API projection
+GET    /v1/projects/{id}/credentials
+POST   /v1/projects/{id}/claim         # returns verification_uri_complete + user_code
+GET    /v1/projects/{id}/claim         # poll: pending | accepted | reconciled | expired
+DELETE /v1/projects/{id}
 ```
 
 Only `reconciled` means the claim finished. Pre-claim database and service access is removed before
