@@ -1,8 +1,8 @@
 # Agent instructions
 
-An agent consuming this service starts at neon.com `llms.txt`, then `auth.md`, then installs the
-Neon CLI and the `neon` and `neon-postgres` skills, and uses the CLI with `neon.ts`. Do not guess
-`POST /v1/agent/identity`. Raw HTTP is the protocol the CLI speaks.
+An agent that needs a Neon account while the user is not around starts at neon.com `llms.txt`,
+then `auth.md`, then installs the Neon CLI and the `neon` and `neon-postgres` skills, and uses the
+CLI with `neon.ts`. Do not guess `POST /v1/agent/identity`. Raw HTTP is the protocol the CLI speaks.
 
 ## How an agent discovers the flow
 
@@ -13,8 +13,9 @@ GET https://neon.com/docs/llms.txt
 GET https://claimable.neon.tech/auth.md
 ```
 
-`llms.txt` points at `auth.md` on this origin. The Claimable Postgres docs page may also appear
-in that index for humans and SEO. It is not on the agent path.
+`llms.txt` states the job (need a Neon account, user not around) and points at `auth.md` on this
+origin. The Claimable Postgres docs page may also appear in that index for humans and SEO. It is
+not on the agent path.
 
 `auth.md` stays on this origin, next to the OAuth well-known documents. neon.com links to it; it
 does not host it. `https://neon.com/docs/llms.txt` is the docs catalog;

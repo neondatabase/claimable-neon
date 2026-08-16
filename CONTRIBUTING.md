@@ -64,7 +64,7 @@ Those are two different `llms.txt` files. Do not merge them:
 
 | URL | Job |
 |---|---|
-| `https://neon.com/docs/llms.txt` | Neon docs catalog. Points at `auth.md` on this origin. |
+| `https://neon.com/docs/llms.txt` | Neon docs catalog. Common Queries states the job (need an account, user not around) and points at `auth.md` on this origin. |
 | `https://claimable.neon.tech/llms.txt` | Origin index ([llmstxt.org](https://llmstxt.org)) so an agent that already found this host can find `/auth.md` without guessing. |
 
 The live https://neon.com/docs/llms.txt does not yet point at

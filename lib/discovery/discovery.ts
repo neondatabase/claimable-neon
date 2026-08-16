@@ -38,7 +38,7 @@ export const llmsTxt = (origin: string): string => {
 	const base = originWithoutTrailingSlash(origin);
 	return `# Claimable Neon
 
-> Temporary Neon projects for AI agents. No human signup. A human can claim the project later.
+> Need a Neon account and the user is not around: provision a project now; they claim it later.
 
 Agents start here, then read auth.md. Do not guess the API.
 
@@ -52,9 +52,10 @@ export const authMarkdown = (origin: string): string => {
 	const base = originWithoutTrailingSlash(origin);
 	return `# Claimable Neon for agents
 
-Claimable Neon provisions a temporary Lakebase Postgres database on Neon before a human creates an
-account. It issues credentials scoped to one project. A human can later transfer that project into
-their Neon organization.
+If you need a Neon account and the user is not around, provision a project now. A human claims it
+later if they want to keep it.
+
+Claimable Neon issues an identity assertion and credentials scoped to one project.
 
 ## Discover
 

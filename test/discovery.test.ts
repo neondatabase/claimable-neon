@@ -40,11 +40,13 @@ describe("auth.md discovery", () => {
 		expect(index).toContain(`${origin}/auth.md`);
 		expect(index).toContain(`${origin}/.well-known/oauth-authorization-server`);
 		expect(index).toContain(`${origin}/.well-known/oauth-protected-resource`);
+		expect(index).toContain("user is not around");
 	});
 
 	it("documents the complete provisioning and claim journey for an agent", () => {
 		const markdown = authMarkdown(origin);
 
+		expect(markdown).toContain("user is not around");
 		expect(markdown).toContain("https://neon.com/docs/llms.txt");
 		expect(markdown).not.toContain("https://neon.com/docs/reference/claimable-postgres.md");
 		expect(markdown).toContain(`${origin}/llms.txt`);

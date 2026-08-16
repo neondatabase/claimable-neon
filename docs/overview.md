@@ -23,7 +23,8 @@ the agent gets an identity assertion and a project without a human in the loop. 
 later if they want to keep it.
 
 neon.new is one unauthenticated POST and a password in `.env`. That is not signup, not revocable,
-and not a Neon project the agent can drive. Claimable Neon is the auth.md path.
+and not a Neon project the agent can drive. Claimable Neon is userless signup for agents
+(including but not limited to implementing the auth.md spec).
 
 ## Current behavior
 
@@ -47,9 +48,10 @@ GET https://claimable.neon.tech/auth.md
 GET https://claimable.neon.tech/.well-known/oauth-authorization-server
 ```
 
-https://neon.com/docs/llms.txt points at https://claimable.neon.tech/auth.md — the protocol file
-on the service origin, next to the OAuth well-known documents. neon.com holds that pointer, not a
-copy of auth.md. Spec: https://workos.com/auth-md/docs/auth-md
+https://neon.com/docs/llms.txt lists the job — need a Neon account and the user is not around:
+provision one now; they claim it later — and points at https://claimable.neon.tech/auth.md, the
+protocol file on the service origin, next to the OAuth well-known documents. neon.com holds that
+pointer, not a copy of auth.md. Spec: https://workos.com/auth-md/docs/auth-md
 
 The Claimable Postgres docs page can stay in llms.txt for humans and SEO. It is not on the agent
 path.
@@ -72,7 +74,7 @@ not the long-term agent API. Instant-URL users are not moved to JWT bearer in we
 agent
   │
   │  1. GET https://neon.com/docs/llms.txt
-  │     follow Claimable Neon → https://claimable.neon.tech/auth.md
+  │     Need a Neon account and the user is not around → https://claimable.neon.tech/auth.md
   ▼
   │  2. GET https://claimable.neon.tech/auth.md
   │     GET https://claimable.neon.tech/.well-known/oauth-authorization-server
