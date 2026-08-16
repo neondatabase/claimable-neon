@@ -16,6 +16,15 @@ new API will be https://claimable.neon.tech.
 | Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
 | Neon Function deploy, dedicated https://track.neon.tech write key, expiry janitor cron. | Open. Blockers for going live. |
 
+## Motivation
+
+Agents cannot open a browser and create a Neon account. https://auth.md is userless registration:
+the agent gets an identity assertion and a project without a human in the loop. A human claims
+later if they want to keep it.
+
+neon.new is one unauthenticated POST and a password in `.env`. That is not signup, not revocable,
+and not a Neon project the agent can drive. Claimable Neon is the auth.md path.
+
 ## Current behavior
 
 Live product: one unauthenticated `POST https://neon.new/api/v1/database` with `{ "ref": "…" }`
@@ -56,15 +65,6 @@ CLI claimable client is not built yet.
 
 Until the neon.new API is removed, `POST https://neon.new/api/v1/database` keeps its contract. It is
 not the long-term agent API. Instant-URL users are not moved to JWT bearer in week one.
-
-## Motivation
-
-Agents cannot open a browser and create a Neon account. https://auth.md is userless registration:
-the agent gets an identity assertion and a project without a human in the loop. A human claims
-later if they want to keep it.
-
-neon.new is one unauthenticated POST and a password in `.env`. That is not signup, not revocable,
-and not a Neon project the agent can drive. Claimable Neon is the auth.md path.
 
 ## How an agent moves through the system
 
