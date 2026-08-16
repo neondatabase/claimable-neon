@@ -1,7 +1,7 @@
 # Claimable Neon, high level
 
-Claimable Neon replaces the Instagres backend behind https://neon.new. After it ships, neon.new is
-sunset on a clock (appendix). The new API will be https://claimable.neon.tech.
+Claimable Neon replaces https://neon.new. After it ships, neon.new is sunset (see appendix). The
+new API will be https://claimable.neon.tech.
 
 ## Status
 
@@ -11,10 +11,10 @@ sunset on a clock (appendix). The new API will be https://claimable.neon.tech.
 | https://neon.new website | Live. After announce: banner pointing at Claimable Neon docs on https://neon.com. Then redirect to console project creation. |
 | `POST https://neon.new/api/v1/database` | Live until sunset, 1–2 months after the website redirect. Then neon.new is gone. |
 | npm `neon-new` / `get-db` | Live. Deprecation warning after announce, then deprecated. |
-| https://claimable.neon.tech | Built in this repo. Not deployed. |
-| https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. After announce: Claimable Neon docs; neon.new API docs come off neon.com. |
-| Funnel | API events in `usage_events` (and https://track.neon.tech once a write key exists). |
-| Neon Function deploy, dedicated https://track.neon.tech write key, expiry janitor | Open. Blockers for going live. |
+| https://claimable.neon.tech | Built. Not yet deployed. |
+| https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. After announce: Claimable Neon docs will be added and neon.new API docs come off neon.com. |
+| Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
+| Neon Function deploy, dedicated https://track.neon.tech write key, expiry janitor cron. | Open. Blockers for going live. |
 
 ## Current behavior
 
@@ -30,8 +30,7 @@ path has no Management API, no Auth, and no Data API.
 
 Not deployed. Target: https://claimable.neon.tech
 
-An agent starts on neon.com, not on this origin. It does not guess
-https://claimable.neon.tech/auth.md.
+An agent starts on neon.com.
 
 ```text
 GET https://neon.com/docs/llms.txt
