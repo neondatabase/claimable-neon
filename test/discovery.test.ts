@@ -46,7 +46,7 @@ describe("auth.md discovery", () => {
 		const markdown = authMarkdown(origin);
 
 		expect(markdown).toContain("https://neon.com/docs/llms.txt");
-		expect(markdown).toContain("https://neon.com/docs/reference/claimable-postgres.md");
+		expect(markdown).not.toContain("https://neon.com/docs/reference/claimable-postgres.md");
 		expect(markdown).toContain(`${origin}/llms.txt`);
 		expect(markdown).toContain(`${origin}/auth.md`);
 		expect(markdown).toContain("npm i -g neon@latest");

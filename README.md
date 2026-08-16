@@ -72,7 +72,7 @@ GET  /.well-known/jwks.json
 `llms.txt` points at `auth.md`. `auth.md` is the protocol file on this origin, not on neon.com.
 The authorization-server document names `identity_endpoint`, `token_endpoint`, and
 `claim_endpoint`. Agents arriving from Neon docs start at https://neon.com/docs/llms.txt →
-https://neon.com/docs/reference/claimable-postgres.md → https://claimable.neon.tech/auth.md
+https://claimable.neon.tech/auth.md
 
 Register, then exchange the assertion for an access token:
 

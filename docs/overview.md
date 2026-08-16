@@ -34,21 +34,21 @@ An agent starts on neon.com.
 
 ```text
 GET https://neon.com/docs/llms.txt
-GET https://neon.com/docs/reference/claimable-postgres.md
 GET https://claimable.neon.tech/auth.md
 GET https://claimable.neon.tech/.well-known/oauth-authorization-server
 ```
 
-https://neon.com/docs/llms.txt lists Claimable Postgres. That docs page points at
-https://claimable.neon.tech/auth.md — the protocol file on the service origin, next to the OAuth
-well-known documents. neon.com holds that pointer, not a copy of auth.md. Spec:
-https://workos.com/auth-md/docs/auth-md
+https://neon.com/docs/llms.txt points at https://claimable.neon.tech/auth.md — the protocol file
+on the service origin, next to the OAuth well-known documents. neon.com holds that pointer, not a
+copy of auth.md. Spec: https://workos.com/auth-md/docs/auth-md
+
+The Claimable Postgres docs page can stay in llms.txt for humans and SEO. It is not on the agent
+path.
 
 If the agent already has this origin (from that pointer), `GET https://claimable.neon.tech/llms.txt`
 indexes `/auth.md` on the same host. It is not how the origin is discovered.
 
-The live https://neon.com/docs/reference/claimable-postgres.md page still documents neon.new and
-does not yet contain that pointer.
+The live https://neon.com/docs/llms.txt does not yet contain that pointer.
 
 Then the agent installs the Neon CLI, writes https://neon.com/docs/reference/neon-ts.md (`neon.ts`),
 and uses the CLI as the client. Raw HTTP is the protocol the CLI speaks, not the agent path. The
@@ -72,8 +72,7 @@ and not a Neon project the agent can drive. Claimable Neon is the auth.md path.
 agent
   │
   │  1. GET https://neon.com/docs/llms.txt
-  │     follow Claimable Postgres → https://neon.com/docs/reference/claimable-postgres.md
-  │     that page names https://claimable.neon.tech/auth.md
+  │     follow Claimable Neon → https://claimable.neon.tech/auth.md
   ▼
   │  2. GET https://claimable.neon.tech/auth.md
   │     GET https://claimable.neon.tech/.well-known/oauth-authorization-server
@@ -156,8 +155,8 @@ Until a dedicated write key and a dbt table exist, https://track.neon.tech is a 
 ### What we cannot see yet
 
 Steps 1–2 are unauthenticated GETs (https://neon.com/docs/llms.txt,
-https://claimable.neon.tech/llms.txt, https://claimable.neon.tech/auth.md, well-known). They are not
-usage events. Fall-off before `POST /v1/agent/identity` is invisible.
+https://claimable.neon.tech/auth.md, well-known). They are not usage events. Fall-off before
+`POST /v1/agent/identity` is invisible.
 
 Errors are not usage events. An agent that hits `capability_requires_claim` or `invalid_request`
 and stops has no funnel step.

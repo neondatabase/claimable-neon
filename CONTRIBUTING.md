@@ -54,19 +54,20 @@ neon.com holds a **pointer**, not a copy (a second copy would drift from the liv
 
 ```text
 GET https://neon.com/docs/llms.txt
-GET https://neon.com/docs/reference/claimable-postgres.md
 GET https://claimable.neon.tech/auth.md
 ```
+
+The Claimable Postgres docs page can stay in the neon.com catalog for humans and SEO. It is not
+on the agent path.
 
 Those are two different `llms.txt` files. Do not merge them:
 
 | URL | Job |
 |---|---|
-| `https://neon.com/docs/llms.txt` | Neon docs catalog. Lists Claimable Postgres. |
+| `https://neon.com/docs/llms.txt` | Neon docs catalog. Points at `auth.md` on this origin. |
 | `https://claimable.neon.tech/llms.txt` | Origin index ([llmstxt.org](https://llmstxt.org)) so an agent that already found this host can find `/auth.md` without guessing. |
 
-The live neon.com Claimable Postgres page still documents neon.new
-(`POST https://neon.new/api/v1/database`) and does not yet link to
+The live https://neon.com/docs/llms.txt does not yet point at
 `https://claimable.neon.tech/auth.md`.
 
 ## Security and API invariants
@@ -120,8 +121,8 @@ bun run test:e2e
 The pre-claim suite provisions a real project, uses Postgres, Managed Better Auth, Data API, and
 the scoped management proxy, then deletes the project.
 
-The full claim-ceremony test also starts from the website `llms.txt`, follows the Claimable Postgres
-reference to this service's `/llms.txt` and `/auth.md`, accepts the project transfer, waits for
+The full claim-ceremony test also starts from the website `/docs/llms.txt`, follows
+`https://claimable.neon.tech/auth.md`, accepts the project transfer, waits for
 reconciliation, and verifies that
 the pre-claim database password, service endpoints, assertion, and access tokens no longer work.
 It requires two distinct Neon organizations. The existing Testing organization can remain the

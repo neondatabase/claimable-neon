@@ -102,37 +102,10 @@ const discoverFromWebsite = async () => {
 		throw new Error("CLAIMABLE_E2E_WEBSITE_ORIGIN is required for website discovery.");
 	}
 
-	const llmsResponse = await fetch(`${websiteOrigin}/llms.txt`);
+	const llmsResponse = await fetch(`${websiteOrigin}/docs/llms.txt`);
 	expect(llmsResponse.status).toBe(200);
 	const llms = await llmsResponse.text();
-	expect(llms).toContain(
-		"Provision a temporary database for an agent (Claimable Postgres)",
-	);
-
-	const docUrl = llms.match(
-		/https:\/\/neon\.com\/docs\/reference\/claimable-postgres\.md/,
-	)?.[0];
-	if (!docUrl) {
-		throw new Error(
-			"Website llms.txt does not link to the Claimable Postgres reference.",
-		);
-	}
-	const localDocUrl = new URL(docUrl);
-	let docsResponse = await fetch(`${websiteOrigin}${localDocUrl.pathname}`);
-	if (docsResponse.status === 404) {
-		const localDocPath = localDocUrl.pathname.replace(/\.md$/, "");
-		docsResponse = await fetch(`${websiteOrigin}${localDocPath}`);
-	}
-	expect(docsResponse.status).toBe(200);
-	const docs = await docsResponse.text();
-	expect(docs).toContain("https://claimable.neon.tech/auth.md");
-	expect(docs).toContain("claim create --env-pull");
-	expect(docs).toContain("/v1/agent/identity");
-
-	const serviceLlmsResponse = await fetch(`${serviceBaseUrl}/llms.txt`);
-	expect(serviceLlmsResponse.status).toBe(200);
-	const serviceLlms = await serviceLlmsResponse.text();
-	expect(serviceLlms).toContain(`${serviceBaseUrl}/auth.md`);
+	expect(llms).toContain("https://claimable.neon.tech/auth.md");
 
 	const authMarkdownResponse = await fetch(`${serviceBaseUrl}/auth.md`);
 	expect(authMarkdownResponse.status).toBe(200);

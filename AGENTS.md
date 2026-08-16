@@ -10,12 +10,11 @@ From Neon docs:
 
 ```text
 GET https://neon.com/docs/llms.txt
-GET https://neon.com/docs/reference/claimable-postgres.md
-GET https://claimable.neon.tech/llms.txt
 GET https://claimable.neon.tech/auth.md
 ```
 
-`llms.txt` lists Claimable Postgres. That page points at `auth.md` on this origin.
+`llms.txt` points at `auth.md` on this origin. The Claimable Postgres docs page may also appear
+in that index for humans and SEO. It is not on the agent path.
 
 `auth.md` stays on this origin, next to the OAuth well-known documents. neon.com links to it; it
 does not host it. `https://neon.com/docs/llms.txt` is the docs catalog;

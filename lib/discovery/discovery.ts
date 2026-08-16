@@ -67,8 +67,6 @@ From Neon docs:
 
 \`\`\`text
 https://neon.com/docs/llms.txt
-https://neon.com/docs/reference/claimable-postgres.md
-${base}/llms.txt
 ${base}/auth.md
 \`\`\`
 
