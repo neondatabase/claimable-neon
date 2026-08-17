@@ -59,10 +59,10 @@ If the agent already has this origin (from that pointer), `GET https://claimable
 indexes `/auth.md` on the same host. It is not how the origin is discovered.
 
 Claimable Neon is for users who do not have a Neon account yet. If the agent already has a Neon
-account — `NEON_API_KEY`, `NEON_PROFILE`, or a CLI login, even if expired — it asks the user to sign
-in (`neon auth`) or mint an API key and creates a project on that account. Prefer that over
-Claimable Neon unless the user says otherwise. If they cannot sign in or provide a key right now,
-ask before using Claimable Neon.
+account — `NEON_API_KEY`, `NEON_PROFILE`, or any row from `neon profile list`, even if expired —
+it asks the user to sign in (`neon auth`) or mint an API key and creates a project on that account.
+Prefer that over Claimable Neon unless the user says otherwise. If they cannot sign in or provide a
+key right now, ask before using Claimable Neon.
 
 The agent path is the Neon CLI. Postgres-only create needs no `neon.ts`. For Auth or the Data API,
 write https://neon.com/docs/reference/neon-ts.md (`neon.ts`) and let the CLI register, pull env, and
@@ -81,9 +81,10 @@ neon claim create
 agent
   │
   │  1. GET https://neon.com/docs/llms.txt
-  │     If this machine already has a Neon account: neon auth or an API key,
-  │     then create a project on that account. Claimable Neon only if there
-  │     is no account, or the user said yes as a workaround.
+  │     If this machine already has a Neon account (`neon profile list` has
+  │     a row, or NEON_API_KEY / NEON_PROFILE is set): neon auth or an API
+  │     key, then create a project on that account. Claimable Neon only if
+  │     there is no account, or the user said yes as a workaround.
   ▼
   │  2. Install the Neon CLI
   │     npm i -g neon@latest
