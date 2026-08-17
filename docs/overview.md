@@ -45,7 +45,6 @@ An agent starts on neon.com.
 ```text
 GET https://neon.com/docs/llms.txt
 GET https://claimable.neon.tech/auth.md
-GET https://claimable.neon.tech/.well-known/oauth-authorization-server
 ```
 
 https://neon.com/docs/llms.txt lists the job — need a Neon account and the user is not around:
@@ -61,9 +60,15 @@ indexes `/auth.md` on the same host. It is not how the origin is discovered.
 
 The live https://neon.com/docs/llms.txt does not yet contain that pointer.
 
-Then the agent installs the Neon CLI, writes https://neon.com/docs/reference/neon-ts.md (`neon.ts`),
-and uses the CLI as the client. Raw HTTP is the protocol the CLI speaks, not the agent path. The
-CLI claimable client is not built yet.
+The agent path is the Neon CLI. Write https://neon.com/docs/reference/neon-ts.md (`neon.ts`) and let
+the CLI register, pull env, and claim. If the CLI is not available, use the REST API in auth.md.
+
+```bash
+npm i -g neon@latest
+npx skills add neondatabase/agent-skills -s neon -s neon-postgres
+unset NEON_API_KEY NEON_PROFILE
+neon claim create
+```
 
 Until the neon.new API is removed, `POST https://neon.new/api/v1/database` keeps its contract. It is
 not the long-term agent API. Instant-URL users are not moved to JWT bearer in week one.
@@ -77,40 +82,45 @@ agent
   │     Need a Neon account and the user is not around → https://claimable.neon.tech/auth.md
   ▼
   │  2. GET https://claimable.neon.tech/auth.md
-  │     GET https://claimable.neon.tech/.well-known/oauth-authorization-server
   ▼
-  │  3. Install the Neon CLI, write neon.ts, use the CLI
+  │  3. Install the Neon CLI, write neon.ts
   │     npm i -g neon@latest
+  │     npx skills add neondatabase/agent-skills -s neon -s neon-postgres
   │     https://neon.com/docs/cli/install.md
   │     https://neon.com/docs/reference/neon-ts.md
   │     Do not run neon auth (that needs a human account).
-  │     The CLI stores the identity assertion and talks to this origin.
   ▼
-  │  4. CLI registers / env pull / deploy
-  │     (HTTP underneath: POST /v1/agent/identity, POST /v1/oauth2/token,
-  │      GET /v1/projects/{id}/credentials, allowlisted proxy)
+  │  4. neon claim create / env pull / deploy
   ▼
-  │  5. CLI starts a claim when a human is ready
-  │     (HTTP underneath: POST /v1/projects/{id}/claim)
+  │  5. neon claim accept --no-open when a human is ready
   ▼
 human
-  │  opens verification_uri, signs in, accepts the transfer
+  │  opens the verification URL, signs in, accepts the transfer
   │
-  │  6. CLI polls GET /v1/projects/{id}/claim until reconciled
+  │  6. neon claim status until reconciled: true
   ▼
 project now lives in the human's org; the assertion is revoked
 ```
 
-The CLI claimable client is not built. Until it is, auth.md still shows the HTTP protocol so a
-client can be written. Once it ships, curl is not the agent path.
+If the CLI is not available, the same steps are REST. auth.md is the field authority.
+
+```http
+POST /v1/agent/identity
+POST /v1/oauth2/token
+GET  /v1/projects/{id}/credentials
+GET|PATCH|POST /v1/projects/{id}/…     # allowlisted Management API
+POST /v1/projects/{id}/claim
+GET  /v1/projects/{id}/claim           # poll until reconciled
+DELETE /v1/projects/{id}
+```
 
 ### How we nudge
 
-Agents copy the first executable block they see. The neon.com Claimable Postgres page and
-https://claimable.neon.tech/auth.md must lead with install + `neon.ts` + the CLI. Curl belongs
-under the protocol, not first. “If the CLI is available” is how they skip it. The same first
-block also runs `npx skills add neondatabase/agent-skills -s neon -s neon-postgres`. Claimable
-Neon is documented in the `neon` skill, not a standalone `claimable-postgres` skill.
+Agents copy the first executable block they see. The neon.com Claimable Postgres page,
+https://claimable.neon.tech/auth.md, and the `neon` skill must lead with install + `neon.ts` + the
+CLI. REST belongs under the protocol, as the fallback when the CLI is not available. The same
+first block also runs `npx skills add neondatabase/agent-skills -s neon -s neon-postgres`.
+Claimable Neon is documented in the `neon` skill, not a standalone `claimable-postgres` skill.
 
 Do not run `neon auth` before claim. That is a human Neon account. The identity assertion is the
 pre-claim credential.
@@ -189,7 +199,7 @@ of a Neon project.
 
 | | neon.new today | Claimable Neon |
 |---|---|---|
-| Create | `POST https://neon.new/api/v1/database` with `{ "ref": "…" }` | `POST /v1/agent/identity` (https://auth.md) |
+| Create | `POST https://neon.new/api/v1/database` with `{ "ref": "…" }` | CLI: `neon claim create`. REST fallback: `POST /v1/agent/identity` (https://auth.md) |
 | What the agent holds | `connection_string` plus a `claim_url` | Identity assertion → access token. Connection URI is fetched later and recorded so it can be revoked |
 | Neon API key | Not involved | Project-scoped key stays inside this service |
 | Management API | None | Allowlisted proxy at `/v1/projects/…` |
@@ -233,7 +243,7 @@ one POST. Do not 301 `POST https://neon.new/api/v1/database` to `POST /v1/agent/
 | https://www.npmjs.com/package/neon-new and https://www.npmjs.com/package/vite-plugin-neon-new | Same HTTP API. Aliases `get-db` / `neondb` already warn |
 | `claimable-postgres` agent skill | curl to that POST, write `.env`, keep `claim_url` for 72 hours |
 | https://pg.new and https://instagres.com | same product, other hostnames |
-| neon CLI / `neon.ts` | not built. This is the client Claimable Neon is for |
+| neon CLI / `neon.ts` | `neon claim` is the agent client. REST is the fallback when the CLI is not available |
 
 The cutover steps below name https://neon.new, https://neon.com docs, and the `neon-new` / `get-db`
 CLIs. https://pg.new, https://instagres.com, and `vite-plugin-neon-new` are the same product; they
