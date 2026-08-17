@@ -50,7 +50,7 @@ https://neon.com/docs/llms.txt lists the job — need a Neon account and the use
 provision one now; they claim it later — and points at https://claimable.neon.tech/auth.md, the
 protocol file on the service origin, next to the OAuth well-known documents. neon.com holds that
 pointer, not a copy of auth.md. Spec: https://workos.com/auth-md/docs/auth-md. Fetch auth.md only
-when `neon claim` is not a command.
+when `neon claim` is not a command, or `neon claim --help` does not list `create`.
 
 The Claimable Postgres docs page can stay in llms.txt for humans and SEO. It is not on the agent
 path.
@@ -62,7 +62,8 @@ The live https://neon.com/docs/llms.txt does not yet contain that pointer.
 
 The agent path is the Neon CLI. Postgres-only create needs no `neon.ts`. For Auth or the Data API,
 write https://neon.com/docs/reference/neon-ts.md (`neon.ts`) and let the CLI register, pull env, and
-claim. If `neon claim` is not a command, use the REST API in auth.md.
+claim. If `neon claim` is not a command, or `neon claim --help` does not list `create`, use the REST
+API in auth.md.
 
 ```bash
 npm i -g neon@latest
@@ -101,8 +102,8 @@ human
 project now lives in the human's org; the assertion is revoked
 ```
 
-If `neon claim` is not a command, GET https://claimable.neon.tech/auth.md and use REST. auth.md is
-the field authority.
+If `neon claim` is not a command, or `neon claim --help` does not list `create`, GET
+https://claimable.neon.tech/auth.md and use REST. auth.md is the field authority.
 
 ```http
 POST /v1/agent/identity
@@ -118,9 +119,10 @@ DELETE /v1/projects/{id}
 
 Agents copy the first executable block they see. The neon.com Claimable Postgres page,
 https://claimable.neon.tech/auth.md, and the `neon` skill must lead with install + the CLI. REST
-belongs under the protocol, as the fallback when `neon claim` is not a command. The same first
-block also runs `npx skills add neondatabase/agent-skills -s neon -s neon-postgres`. Claimable Neon
-is documented in the `neon` skill, not a standalone `claimable-postgres` skill.
+belongs under the protocol, as the fallback when `neon claim` is not a command, or `neon claim
+--help` does not list `create`. The same first block also runs
+`npx skills add neondatabase/agent-skills -s neon -s neon-postgres`. Claimable Neon is documented in
+the `neon` skill, not a standalone `claimable-postgres` skill.
 
 Do not run `neon auth` before claim. That is a human Neon account. The identity assertion is the
 pre-claim credential.
@@ -243,7 +245,7 @@ one POST. Do not 301 `POST https://neon.new/api/v1/database` to `POST /v1/agent/
 | https://www.npmjs.com/package/neon-new and https://www.npmjs.com/package/vite-plugin-neon-new | Same HTTP API. Aliases `get-db` / `neondb` already warn |
 | `claimable-postgres` agent skill | curl to that POST, write `.env`, keep `claim_url` for 72 hours |
 | https://pg.new and https://instagres.com | same product, other hostnames |
-| neon CLI / `neon.ts` | `neon claim` is the agent client. REST is the fallback when `neon claim` is not a command |
+| neon CLI / `neon.ts` | `neon claim` is the agent client. REST is the fallback when `neon claim` is not a command, or `neon claim --help` does not list `create` |
 
 The cutover steps below name https://neon.new, https://neon.com docs, and the `neon-new` / `get-db`
 CLIs. https://pg.new, https://instagres.com, and `vite-plugin-neon-new` are the same product; they
