@@ -43,7 +43,7 @@ read a project can also delete it. This service enforces the finer capability bo
 |---|---|---|
 | `postgres` | always | Lakebase Postgres is always provisioned. |
 | `data_api` | on request | Neon Data API. Off by default. |
-| `auth` | on request | Managed Better Auth. Off by default. Its pre-claim integration and data are deleted before project transfer so Auth tokens do not survive; the recipient can re-enable it. |
+| `auth` | on request | Managed Better Auth. Off by default. Transfers with the project. |
 | `storage` | no | Neon Object Storage requires a claim. The S3 data plane bypasses this service, and Neon does not expose the storage quota needed to cap pre-claim usage. |
 | `functions` | no | Deployment requires a claim. `neon dev` can still run declared functions locally against the claimable database. |
 | `ai_gateway` | no | Neon AI Gateway requires a claim. |
@@ -117,8 +117,9 @@ GET    /v1/projects/{id}/claim         # poll: pending | accepted | reconciled |
 DELETE /v1/projects/{id}
 ```
 
-Only `reconciled` means the claim finished. Pre-claim database and service access is removed before
-the transfer URL is exposed. `accepted` means the service observed that the project moved; the same
+Only `reconciled` means the claim finished. Pre-claim database passwords, the project key, and
+agent tokens are revoked before the transfer URL is exposed. Auth and the Data API stay enabled.
+`accepted` means the service observed that the project moved; the same
 status poll then revokes the identity assertion and records `reconciled`.
 
 ### CLI and `neon.ts`

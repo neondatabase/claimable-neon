@@ -193,10 +193,9 @@ Authorization: Bearer <claim_status_access_token>
 
 The claim moves through \`pending\`, \`accepted\`, and \`reconciled\`. Stop using pre-claim
 credentials when the browser claim starts. At \`reconciled\`, the identity assertion, access
-tokens, project key, database password, Data API, and Managed Better Auth integration no longer
-authorize project access. The status endpoint keeps returning the terminal \`reconciled\` state
-when retried with the retained status token. Claim preparation deletes the pre-claim Managed Better
-Auth integration and its database data; the recipient can enable a new integration after transfer.
+tokens, project key, and database password no longer authorize project access. Auth and the
+Data API stay enabled and transfer with the project. The status endpoint keeps returning the
+terminal \`reconciled\` state when retried with the retained status token.
 
 ## Delete or revoke
 

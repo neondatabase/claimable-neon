@@ -418,8 +418,7 @@ export const revokeAccessTokens = async (
 export type DerivedCredentialKind =
 	| "branch_credential"
 	| "connection_uri"
-	| "role_password"
-	| "auth_secret";
+	| "role_password";
 
 export type DerivedCredential = {
 	id: number;

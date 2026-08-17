@@ -315,10 +315,43 @@ const startBrowserClaim = async (
 	return { claim, transferRequestId };
 };
 
-const expectPreClaimCredentialsRevoked = async (
+const postgresTarget = (databaseUrl: string) => {
+	const parsed = new URL(databaseUrl);
+	const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, "")).split(
+		"/",
+	)[0];
+	if (!parsed.username || !databaseName) {
+		throw new Error("DATABASE_URL omitted the role or database name.");
+	}
+	return {
+		roleName: decodeURIComponent(parsed.username),
+		databaseName,
+	};
+};
+
+const waitUntil = async (
+	operation: () => Promise<void>,
+	label: string,
+): Promise<void> => {
+	const deadline = Date.now() + 30_000;
+	let lastError: unknown;
+	while (Date.now() < deadline) {
+		try {
+			await operation();
+			return;
+		} catch (error) {
+			lastError = error;
+			await setTimeout(1000);
+		}
+	}
+	throw lastError instanceof Error
+		? lastError
+		: new Error(`${label} did not succeed before the E2E timeout.`);
+};
+
+const expectDatabaseAccessRevoked = async (
 	registration: Registration,
 	credentials: Credentials,
-	anonymousToken: string,
 	authorization: Record<string, string>,
 	heldDatabase: PostgresClient,
 ): Promise<void> => {
@@ -332,18 +365,75 @@ const expectPreClaimCredentialsRevoked = async (
 	} finally {
 		await oldDatabase.end({ timeout: 1 });
 	}
-	const oldDataApi = await fetch(
-		`${credentials.services.data_api.url}/claimable_claim_e2e?select=id`,
-		{ headers: { authorization: `Bearer ${anonymousToken}` } },
-	);
-	expect(oldDataApi.ok).toBe(false);
-	const oldAuth = await fetch(`${credentials.services.auth.base_url}/token/anonymous`);
-	expect(oldAuth.ok).toBe(false);
 	const oldAccessToken = await fetch(
 		`${serviceBaseUrl}/v1/projects/${registration.project.id}`,
 		{ headers: authorization },
 	);
 	expect(oldAccessToken.status).toBe(401);
+};
+
+const expectAuthAndDataApiLive = async (
+	credentials: Credentials,
+	anonymousToken: string,
+): Promise<void> => {
+	await waitUntil(async () => {
+		const auth = await fetch(`${credentials.services.auth.base_url}/token/anonymous`);
+		expect(auth.ok).toBe(true);
+		const dataApi = await fetch(
+			`${credentials.services.data_api.url}/claimable_claim_e2e?select=id,value&id=eq.1`,
+			{ headers: { authorization: `Bearer ${anonymousToken}` } },
+		);
+		expect(dataApi.status).toBe(200);
+		expect(await dataApi.json()).toEqual([{ id: 1, value: "before-claim" }]);
+	}, "Auth and Data API after claim preparation");
+};
+
+const connectionUriResponse = z.object({
+	uri: z.string().min(1),
+});
+
+const expectTransferredProjectKeepsDataAndServices = async (
+	apiKey: string,
+	registration: Registration,
+	credentials: Credentials,
+	anonymousToken: string,
+): Promise<void> => {
+	const { roleName, databaseName } = postgresTarget(credentials.database_url);
+	const auth = await neonRequest(
+		apiKey,
+		"GET",
+		`/projects/${encodeURIComponent(registration.project.id)}/branches/${encodeURIComponent(registration.project.branch_id)}/auth`,
+	);
+	expect(auth.ok).toBe(true);
+	const dataApi = await neonRequest(
+		apiKey,
+		"GET",
+		`/projects/${encodeURIComponent(registration.project.id)}/branches/${encodeURIComponent(registration.project.branch_id)}/data-api/${encodeURIComponent(databaseName)}`,
+	);
+	expect(dataApi.ok).toBe(true);
+	const connection = await neonRequest(
+		apiKey,
+		"GET",
+		`/projects/${encodeURIComponent(registration.project.id)}/connection_uri?${new URLSearchParams(
+			{
+				branch_id: registration.project.branch_id,
+				database_name: databaseName,
+				role_name: roleName,
+				pooled: "true",
+			},
+		).toString()}`,
+	);
+	expect(connection.ok).toBe(true);
+	const uri = connectionUriResponse.parse(await connection.json()).uri;
+	const sql = postgres(uri, { connect_timeout: 30, prepare: false });
+	try {
+		const [row] = await sql<{ id: number; value: string }[]>`
+			select id, value from claimable_claim_e2e where id = 1`;
+		expect(row).toEqual({ id: 1, value: "before-claim" });
+	} finally {
+		await sql.end({ timeout: 5 });
+	}
+	await expectAuthAndDataApiLive(credentials, anonymousToken);
 };
 
 const acceptTransfer = async (
@@ -430,7 +520,7 @@ describe("website discovery and full claim ceremony", () => {
 	});
 
 	it.skipIf(!websiteOrigin || !sourceApiKey)(
-		"revokes credentials and terminates sessions before exposing a transfer URL",
+		"rotates the database password and keeps Auth and Data API before exposing a transfer URL",
 		async () => {
 			if (!sourceApiKey) {
 				throw new Error("A source API key is required for claim-preparation cleanup.");
@@ -445,13 +535,13 @@ describe("website discovery and full claim ceremony", () => {
 				heldDatabase = provisioned.heldDatabase;
 				const { credentials, anonymousToken, authorization } = provisioned;
 				await startBrowserClaim(registration, authorization);
-				await expectPreClaimCredentialsRevoked(
+				await expectDatabaseAccessRevoked(
 					registration,
 					credentials,
-					anonymousToken,
 					authorization,
 					heldDatabase,
 				);
+				await expectAuthAndDataApiLive(credentials, anonymousToken);
 			} catch (error) {
 				testFailure = error;
 			}
@@ -498,13 +588,13 @@ describe("website discovery and full claim ceremony", () => {
 					registration,
 					authorization,
 				);
-				await expectPreClaimCredentialsRevoked(
+				await expectDatabaseAccessRevoked(
 					registration,
 					credentials,
-					anonymousToken,
 					authorization,
 					heldDatabase,
 				);
+				await expectAuthAndDataApiLive(credentials, anonymousToken);
 				await acceptTransfer(
 					recipientApiKey,
 					recipientOrgId,
@@ -515,6 +605,12 @@ describe("website discovery and full claim ceremony", () => {
 					registration,
 					metadata,
 					claim.interval,
+				);
+				await expectTransferredProjectKeepsDataAndServices(
+					recipientApiKey,
+					registration,
+					credentials,
+					anonymousToken,
 				);
 				await expectAssertionRevoked(
 					registration.identity_assertion,

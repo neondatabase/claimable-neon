@@ -84,8 +84,8 @@ create index if not exists tokens_registration_idx on tokens (registration_id, k
 -- Every credential this service hands out on a caller's behalf.
 --
 -- Without this table a claim cannot be a security boundary: rotating the agent token leaves the
--- branch credential, the S3 secret, the role password, and the Neon Auth server key untouched,
--- and the pre-claim holder keeps access to a database its new owner believes is private.
+-- branch credential, the S3 secret, and the role password untouched, and the pre-claim holder
+-- keeps access to a database its new owner believes is private.
 create table if not exists derived_credentials (
     id                bigserial primary key,
     registration_id   text        not null references registrations (id) on delete cascade,
@@ -107,7 +107,7 @@ alter table derived_credentials
     drop constraint if exists derived_credentials_kind_check;
 alter table derived_credentials
     add constraint derived_credentials_kind_check
-    check (kind in ('branch_credential', 'connection_uri', 'role_password', 'auth_secret'));
+    check (kind in ('branch_credential', 'connection_uri', 'role_password'));
 
 create index if not exists derived_credentials_live_idx
     on derived_credentials (registration_id)

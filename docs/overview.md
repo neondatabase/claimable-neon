@@ -193,9 +193,9 @@ of a Neon project.
 | What the agent holds | `connection_string` plus a `claim_url` | Identity assertion → access token. Connection URI is fetched later and recorded so it can be revoked |
 | Neon API key | Not involved | Project-scoped key stays inside this service |
 | Management API | None | Allowlisted proxy at `/v1/projects/…` |
-| Claim offer | Created at provision time. neon.new starts the transfer with no `ttl_seconds`, so the request expires after 24 hours and hours 24–72 are unclaimable | Created when a human redeems a short-lived code. Prep then revokes the project key, Data API, Auth, role passwords, and access tokens **before** exposing the console transfer URL |
+| Claim offer | Created at provision time. neon.new starts the transfer with no `ttl_seconds`, so the request expires after 24 hours and hours 24–72 are unclaimable | Created when a human redeems a short-lived code. Prep then revokes the project key, role passwords, and access tokens **before** exposing the console transfer URL. Auth and Data API stay enabled |
 | After claim | `GET https://neon.new/api/v1/database/{id}` returns `connection_string: null` | Status poll goes `pending` → `accepted` → `reconciled`. Only `reconciled` means the assertion is revoked and the ceremony finished |
-| Auth / Data API | Not part of the create API | Optional at registration; deleted at claim so pre-claim Auth tokens do not survive |
+| Auth / Data API | Not part of the create API | Optional at registration; they transfer with the project. `DATABASE_URL` is rotated at claim |
 | Usage | Airbyte copies the neon.new `projects` table | `usage_events` locally; optional `@segment/analytics-node` to https://track.neon.tech (same path as CLI and MCP) |
 
 Same unclaimed quotas as neon.new: 100 MB storage, 1 GB transfer, 72 hours. Same policy that

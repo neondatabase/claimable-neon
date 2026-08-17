@@ -3,8 +3,6 @@ import { ServiceError } from "../errors/errors.ts";
 import type { NeonClient } from "../neon/client.ts";
 import {
 	type ProjectPasswordRole,
-	disableProjectAuth,
-	disableProjectDataApi,
 	listProjectPasswordRoles,
 	resetProjectRolePasswords,
 	revokeProjectKey,
@@ -16,7 +14,6 @@ import {
 	type Sql,
 	completeClaimReconciliation,
 	getProjectKey,
-	getServiceCredentials,
 	liveDerivedCredentials,
 	markDerivedCredentialRevoked,
 	markProjectKeyRevoked,
@@ -75,8 +72,8 @@ const rotateAndQuiesceProjectRoles = async (
 };
 
 /**
- * Remove every credential the anonymous phase could have retained before exposing a transfer URL.
- * The recipient never needs to trust that this service can still reach their project after transfer.
+ * Rotate issued Postgres secrets and revoke control-plane access before exposing a transfer URL.
+ * Auth and Data API stay enabled: they issue URLs, not secrets the agent could keep.
  */
 export const prepareClaimTransfer = async (
 	dependencies: ClaimReconciliationDependencies,
@@ -85,10 +82,7 @@ export const prepareClaimTransfer = async (
 	const project = {
 		projectId: registration.neonProjectId,
 		branchId: registration.neonBranchId,
-		databaseName: registration.databaseName,
-		roleName: registration.roleName,
 	};
-	const services = await getServiceCredentials(dependencies.sql, registration.id);
 
 	const projectKey = await getProjectKey(dependencies.sql, registration.id);
 	if (!projectKey.revokedAt) {
@@ -102,13 +96,6 @@ export const prepareClaimTransfer = async (
 			if (!isMissingUpstreamResource(error)) throw error;
 		}
 		await markProjectKeyRevoked(dependencies.sql, registration.id);
-	}
-
-	if (services.some((service) => service.capability === "data_api")) {
-		await disableProjectDataApi(dependencies.orgClient, project);
-	}
-	if (services.some((service) => service.capability === "auth")) {
-		await disableProjectAuth(dependencies.orgClient, project);
 	}
 
 	await rotateAndQuiesceProjectRoles(dependencies, project);

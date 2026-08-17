@@ -364,23 +364,6 @@ export const getProjectOwnerOrg = async (
 	}
 };
 
-const ignoreMissingIntegration = async (
-	operation: () => Promise<unknown>,
-): Promise<void> => {
-	try {
-		await operation();
-	} catch (error) {
-		if (
-			error instanceof ServiceError &&
-			error.code === "upstream_error" &&
-			error.options.upstreamStatus === 404
-		) {
-			return;
-		}
-		throw error;
-	}
-};
-
 const retryProjectLock = async <Result>(
 	operation: () => Promise<Result>,
 ): Promise<Result> => {
@@ -497,25 +480,3 @@ export const setProjectEndpointsDisabled = async (
 		await waitForProjectOperations(client, project.projectId, updated.operations);
 	}
 };
-
-export const disableProjectDataApi = async (
-	client: NeonClient,
-	project: Pick<ProvisionedProject, "projectId" | "branchId" | "databaseName">,
-): Promise<void> =>
-	ignoreMissingIntegration(() =>
-		client.delete(
-			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/data-api/${pathSegment(project.databaseName)}`,
-		),
-	);
-
-export const disableProjectAuth = async (
-	client: NeonClient,
-	project: Pick<ProvisionedProject, "projectId" | "branchId">,
-): Promise<void> =>
-	ignoreMissingIntegration(() =>
-		client.request(
-			"DELETE",
-			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/auth`,
-			{ delete_data: true },
-		),
-	);

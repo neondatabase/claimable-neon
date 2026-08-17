@@ -65,7 +65,7 @@ two vocabularies cannot drift apart again.
 `{"auth_provider":"better_auth"}` uses `auth@mail.myneon.app`. That sender is rate-limited, does
 not support verification links, and is what Free-plan projects already use. Email verification is
 off by default. Auth stays off by default in this service because an anonymous pre-claim project
-would send on Neon's reputation; the recipient re-enables Auth after claim.
+would send on Neon's reputation. Claim does not disable Auth if it was granted.
 
 **Usage is emitted to `https://track.neon.tech`, the same Zerobus path as CLI and MCP.** Every
 registration, token issue, claim, proxy call, credentials read, and deletion also writes a
@@ -74,20 +74,14 @@ Zerobus (`analytics_events_prod.default.events`, then `prod.transformed.stg_trac
 `fact_segment_*`). Orbit rolls those events into `prod.product.claimable_neon_*` once a write key
 and a dbt table exist. neon.new's JDBC-from-state-DB path is not used here.
 
-**Claim preparation removes pre-claim access before exposing the Neon transfer URL.** The service
-revokes the project-scoped API key, disables the compute to terminate and block database sessions,
-disables Data API, deletes the pre-claim Managed Better Auth integration and data, resets every
-password-authenticated role, re-enables the compute, and revokes access tokens. It then redirects
-the human to accept the transfer. The identity assertion remains valid only for claim-status token
-exchange. After the project leaves the source organization, the first status poll revokes the
-assertion and records `reconciled`; the retained status token can repeat that terminal read if the
-first response is lost.
-
-**Managed Better Auth is deleted rather than transferred.** Its provider project has a separate,
-interactive ownership ceremony. Claimable Neon cannot complete that ceremony on behalf of the
-recipient, and leaving the provider active would leave pre-claim Auth tokens alive. The pre-claim
-integration and database data are deleted; the recipient can re-enable Managed Better Auth after
-the Neon project transfer.
+**Claim preparation rotates issued Postgres secrets before exposing the Neon transfer URL.** The
+service revokes the project-scoped API key, disables the compute to terminate and block database
+sessions, resets every password-authenticated role, re-enables the compute, and revokes access
+tokens. Auth and the Data API stay enabled. It then redirects the human to accept the transfer.
+The identity assertion remains valid only for claim-status token exchange. After the project
+leaves the source organization, the first status poll revokes the assertion and records
+`reconciled`; the retained status token can repeat that terminal read if the first response is
+lost.
 
 ## Known open questions
 

@@ -48,7 +48,9 @@ describe("auth.md discovery", () => {
 
 		expect(markdown).toContain("user is not around");
 		expect(markdown).toContain("https://neon.com/docs/llms.txt");
-		expect(markdown).not.toContain("https://neon.com/docs/reference/claimable-postgres.md");
+		expect(markdown).not.toContain(
+			"https://neon.com/docs/reference/claimable-postgres.md",
+		);
 		expect(markdown).toContain(`${origin}/llms.txt`);
 		expect(markdown).toContain(`${origin}/auth.md`);
 		expect(markdown).toContain("npm i -g neon@latest");
@@ -66,5 +68,8 @@ describe("auth.md discovery", () => {
 		expect(markdown).toContain("capability_requires_claim");
 		expect(markdown).toContain("error.code");
 		expect(markdown).toContain("reconciled");
+		expect(markdown).toContain("database password");
+		expect(markdown).toContain("stay enabled and transfer with the project");
+		expect(markdown).not.toContain("deletes the pre-claim Managed Better Auth");
 	});
 });

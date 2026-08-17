@@ -124,7 +124,8 @@ the scoped management proxy, then deletes the project.
 The full claim-ceremony test also starts from the website `/docs/llms.txt`, follows
 `https://claimable.neon.tech/auth.md`, accepts the project transfer, waits for
 reconciliation, and verifies that
-the pre-claim database password, service endpoints, assertion, and access tokens no longer work.
+the pre-claim database password, assertion, and access tokens no longer work, and that Auth and
+the Data API still do.
 It requires two distinct Neon organizations. The existing Testing organization can remain the
 source; create one dedicated Claimable Neon E2E recipient organization:
 

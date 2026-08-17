@@ -91,8 +91,8 @@ every existing token the day the API changed.
 service. If a change would return one to a caller, the change is wrong.
 
 **Record every credential the service issues.** `derived_credentials` exists because rotating an
-agent token at claim time does not revoke the branch credential, the S3 secret, the role password,
-or the Neon Auth server key. Without that table the claim is not a security boundary.
+agent token at claim time does not revoke the branch credential, the S3 secret, or the role
+password. Without that table the claim is not a security boundary.
 
 **A denied capability is recorded, then denied.** Do not "optimize" this into a client-side refusal
 or an early return before the insert. The record is the product requirement.
