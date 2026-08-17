@@ -61,7 +61,7 @@ indexes `/auth.md` on the same host. It is not how the origin is discovered.
 Claimable Neon is for users who do not have a Neon account yet. If the agent already has a Neon
 account — `NEON_API_KEY`, `NEON_PROFILE`, or a CLI login, even if expired — it asks the user to sign
 in (`neon auth`) or mint an API key and creates a project on that account. Prefer that over
-Claimable Neon unless the user says otherwise. If they cannot sign in because they are not around,
+Claimable Neon unless the user says otherwise. If they cannot sign in or provide a key right now,
 ask before using Claimable Neon.
 
 The agent path is the Neon CLI. Postgres-only create needs no `neon.ts`. For Auth or the Data API,
