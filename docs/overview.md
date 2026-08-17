@@ -213,6 +213,7 @@ Two pull requests. The service itself went to `main` as commits between them.
 | https://github.com/neondatabase/claimable-neon/commit/8c625fc2925c2c3f48e9119e1cb7f50d24ced28e | CLI Postgres connections through claimable tokens. |
 | https://github.com/neondatabase/claimable-neon/commit/c739741cc209bea3ad612c26e05ca3fc9439f363 | Pre-transfer credential teardown and the recorded claim ceremony. |
 | https://github.com/neondatabase/claimable-neon/commit/9c629399be9202aea54fd9532d26a21b3fe16503 | Close races between password rotation and live sessions at claim time. |
+| https://github.com/neondatabase/claimable-neon/commit/a7ddf2acdfe4fb325993866e5b8d19f1f6a3ec9d | Claim prep rotates issued Postgres passwords only; Auth and Data API transfer with the project. |
 | https://github.com/neondatabase/claimable-neon/pull/2 | `usage_events` + https://track.neon.tech. Reconcile under a reserved postgres.js connection so the status poll can finish after the human accepts. |
 
 Still open: Neon Function deployment, a dedicated https://track.neon.tech write key, and automatic
