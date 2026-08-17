@@ -60,10 +60,10 @@ indexes `/auth.md` on the same host. It is not how the origin is discovered.
 
 Claimable Neon is for users who do not have a Neon account yet. If the agent already has a Neon
 account — `NEON_API_KEY`, `NEON_PROFILE`, or a `neon profile list -o json` profile whose `account`
-is not `-` — it asks the user to sign in (`neon auth`) or mint an API key and creates a project on
-that account. A `DEFAULT` row with `account: "-"` is not an account. Prefer that over Claimable Neon
-unless the user says otherwise. If they cannot sign in or provide a key right now, ask before using
-Claimable Neon.
+is not `-` — use those credentials and create a project on that account. A `DEFAULT` row with
+`account: "-"` is not an account. If authentication fails, ask the user to sign in (`neon auth`) or
+mint an API key. Prefer that over Claimable Neon unless the user says otherwise. If they cannot sign
+in or provide a key right now, ask before using Claimable Neon.
 
 The agent path is the Neon CLI. Postgres-only create needs no `neon.ts`. For Auth or the Data API,
 write https://neon.com/docs/reference/neon-ts.md (`neon.ts`) and let the CLI register, pull env, and
@@ -87,9 +87,10 @@ agent
   │     npm i -g neon@latest
   │     npx skills add neondatabase/agent-skills -s neon -s neon-postgres
   │     An account exists if NEON_API_KEY or NEON_PROFILE is set, or a
-  │     profile has account other than "-". If so: neon auth or an API
-  │     key, then create a project on that account. Claimable Neon only
-  │     if there is no account, or the user said yes as a workaround.
+  │     profile has account other than "-". If so: use those credentials
+  │     and create a project on that account. If authentication fails:
+  │     neon auth or an API key. Claimable Neon only if there is no
+  │     account, or the user said yes as a workaround.
   │     Write neon.ts only for Auth or the Data API
   │     (https://neon.com/docs/reference/neon-ts.md)
   │     Do not run neon auth on the claim path.
