@@ -1,7 +1,7 @@
 # Claimable Neon, high level
 
 Claimable Neon replaces https://neon.new. After it ships, neon.new is sunset (see appendix). The
-new API will be https://claimable.neon.tech.
+new API will be https://claimable.neon.tech - built for agents.
 
 ## Status
 
@@ -18,12 +18,14 @@ new API will be https://claimable.neon.tech.
 
 ## Motivation
 
-Agents cannot open a browser and create a Neon account. https://auth.md is userless registration:
-the agent gets an identity assertion and a project without a human in the loop. A human claims
+Agents cannot open a browser and create a Neon account. Cloudflare, WorkOS and others have therefore
+started to offer userless sign-up flows where agents create accounts and humans can claim them later.
+
+WorkOS created the https://auth.md userless registration spec for this: an agent gets an identity and a project without a human in the loop. A human claims
 later if they want to keep it.
 
-neon.new is one unauthenticated POST and a password in `.env`. That is not signup, not revocable,
-and not a Neon project the agent can drive. Claimable Neon is REST/CLI-driven userless signup for agents
+neon.new (aka. Instagres) was meant to be a standalone system a bit detached from Neon proper. The next iteration of it
+will be called "Claimable Neon" and will be a deeply integrated userless claim flow: REST/CLI-driven userless signup for agents
 (including but not limited to implementing the auth.md spec).
 
 ## Current behavior
@@ -52,24 +54,14 @@ origin, next to the OAuth well-known documents. neon.com holds that pointer, not
 Spec: https://workos.com/auth-md/docs/auth-md. Fetch auth.md only when `neon claim` is not a
 command, or `neon claim --help` does not list `create`.
 
-The Claimable Postgres docs page can stay in llms.txt for humans and SEO. It is not on the agent
-path.
-
-If the agent already has this origin (from that pointer), `GET https://claimable.neon.tech/llms.txt`
-indexes `/auth.md` on the same host. It is not how the origin is discovered.
-
 Claimable Neon is for users who do not have a Neon account yet. If the agent already has a Neon
-account — `NEON_API_KEY`, `NEON_PROFILE`, or a `neon profile list -o json` profile whose `account`
-is not `-` — use those credentials and create a project on that account. A `DEFAULT` row with
-`account: "-"` is not an account. `neon init` uses DEFAULT and refuses `NEON_PROFILE`; if a listed profile has `account` other than
-`-`, use `neon --profile <name> link`. If authentication fails or a command waits on a browser, ask
+account then the agent is urged to use it. If authentication fails or a command waits on a browser, ask
 the user to sign in (`neon auth`) or mint an API key. Prefer that over Claimable Neon unless the user
 says otherwise. If they cannot sign in or provide a key right now, ask before using Claimable Neon.
 
-The agent path is the Neon CLI. Postgres-only create needs no `neon.ts`. For Auth or the Data API,
+The agent path is integrated in the Neon CLI. Agents install the Neon CLI to create a Neon project. Postgres-only create needs no `neon.ts`. For Auth or the Data API,
 write https://neon.com/docs/reference/neon-ts.md (`neon.ts`) and let the CLI register, pull env, and
-claim. If `neon claim` is not a command, or `neon claim --help` does not list `create`, use the REST
-API in auth.md.
+claim. Alternatively, the agent may fall back to pure REST API calls.
 
 ```bash
 npm i -g neon@latest
@@ -87,14 +79,11 @@ agent
   │  2. Install the Neon CLI, then neon profile list -o json
   │     npm i -g neon@latest
   │     npx skills add neondatabase/agent-skills -s neon -s neon-postgres
-  │     An account exists if NEON_API_KEY or NEON_PROFILE is set, or a
-  │     profile has account other than "-". If so: use those credentials.
-  │     neon init uses DEFAULT and refuses NEON_PROFILE; if a listed
-  │     profile has account other than "-", use neon --profile <name>
-  │     link. If authentication fails or a command waits on a browser:
+  │     Check for existing Neon accounts (e.g., logged in Neon CLI). 
+  │     If authentication fails or a command waits on a browser:
   │     neon auth or an API key. Claimable Neon only if there is no
   │     account, or the user said yes as a workaround.
-  │     Write neon.ts only for Auth or the Data API
+  │     Use neon.ts for Auth or the Data API
   │     (https://neon.com/docs/reference/neon-ts.md)
   │     Do not run neon auth on the claim path.
   ▼
@@ -122,30 +111,6 @@ POST /v1/projects/{id}/claim
 GET  /v1/projects/{id}/claim           # poll until reconciled
 DELETE /v1/projects/{id}
 ```
-
-### How we nudge
-
-Agents copy the first executable block they see. The neon.com Claimable Postgres page,
-https://claimable.neon.tech/auth.md, and the `neon` skill must lead with install + the CLI. REST
-belongs under the protocol, as the fallback when `neon claim` is not a command, or `neon claim
---help` does not list `create`. The same first block also runs
-`npx skills add neondatabase/agent-skills -s neon -s neon-postgres`. Claimable Neon is documented in
-the `neon` skill, not a standalone `claimable-postgres` skill.
-
-On the claim path, do not run `neon auth`. That is a human Neon account. The identity assertion is
-the pre-claim credential. If a Neon account already exists, use it instead of this path.
-
-`neon.ts` stays ordinary Neon config (no claimable-specific fields). `neon deploy` sends every
-declared service to this API; denied capabilities come back as `requires_claim` rather than being
-stripped client-side.
-
-Registration does **not** create a Neon transfer request. The transfer exists only after a human
-redeems a short-lived claim code. Until then, possession of the registration response is not
-possession of the project.
-
-Denied capabilities (`storage`, `functions`, `ai_gateway` today) are recorded, then denied. The
-record is how demand is measured. Clients must send the full requested set; they must not strip
-unsupported services before the request reaches this API.
 
 ## Funnel
 
