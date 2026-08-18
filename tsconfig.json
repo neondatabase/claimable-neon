@@ -17,5 +17,5 @@
 		"skipLibCheck": true,
 		"resolveJsonModule": true
 	},
-	"include": ["src", "lib", "test", "neon.ts", "vitest.config.ts"]
+	"include": ["src", "lib", "test", "neon.ts", "server.ts", "vitest.config.ts"]
 }

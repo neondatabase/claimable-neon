@@ -19,6 +19,7 @@ import {
 	llmsTxt,
 	protectedResourceMetadata,
 } from "../discovery/discovery.ts";
+import { PROXY_SECRET_HEADER, requireProxySharedSecret } from "../edge/secret.ts";
 import { ServiceError, isServiceError, toServiceError } from "../errors/errors.ts";
 import { NeonClient } from "../neon/client.ts";
 import {
@@ -703,6 +704,10 @@ export const createApp = (dependencies: AppDependencies) => {
 	app.use("*", async (context, next) => {
 		context.set("requestId", context.req.header("x-request-id") ?? randomUUID());
 		try {
+			requireProxySharedSecret(
+				context.req.header(PROXY_SECRET_HEADER),
+				dependencies.config.proxySharedSecret,
+			);
 			await next();
 		} finally {
 			context.header("x-request-id", context.get("requestId"));

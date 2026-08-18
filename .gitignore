@@ -15,3 +15,5 @@ coverage/
 # Function bundles produced by `neon deploy`
 .neon-build/
 *.zip
+
+.vercel/

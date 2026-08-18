@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { ServiceError } from "../errors/errors.ts";
+import { isLocalhostHostname } from "./origin.ts";
 
 const HOURS_72 = 72 * 60 * 60;
 const MEBIBYTE = 1024 * 1024;
@@ -83,6 +84,11 @@ const schema = z.object({
 			const trimmed = value?.trim() ?? "";
 			return trimmed.length > 0 ? trimmed : undefined;
 		}),
+	/** The Function invocation URL remains publicly reachable until custom hostnames work. */
+	PROXY_SHARED_SECRET: z
+		.string()
+		.optional()
+		.transform((value) => value?.trim() ?? ""),
 });
 
 export type Config = {
@@ -109,6 +115,7 @@ export type Config = {
 	consoleClaimUrl: string;
 	logLevel: "debug" | "info" | "warn" | "error";
 	analyticsWriteKey: string | undefined;
+	proxySharedSecret: string;
 };
 
 export const loadConfig = (env: Record<string, string | undefined>): Config => {
@@ -131,15 +138,17 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 
 	const origin = value.PUBLIC_ORIGIN.replace(/\/+$/, "");
 	const hostname = new URL(origin).hostname;
-	if (
-		value.NEON_API_KEY_KIND === "user_local" &&
-		hostname !== "localhost" &&
-		hostname !== "127.0.0.1" &&
-		hostname !== "::1"
-	) {
+	const localhost = isLocalhostHostname(hostname);
+	if (value.NEON_API_KEY_KIND === "user_local" && !localhost) {
 		throw new ServiceError(
 			"internal_error",
 			"NEON_API_KEY_KIND=user_local is allowed only with a localhost PUBLIC_ORIGIN.",
+		);
+	}
+	if (!localhost && value.PROXY_SHARED_SECRET.length === 0) {
+		throw new ServiceError(
+			"internal_error",
+			"PROXY_SHARED_SECRET is required when PUBLIC_ORIGIN is not localhost.",
 		);
 	}
 
@@ -166,5 +175,6 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 		consoleClaimUrl: value.CONSOLE_CLAIM_URL,
 		logLevel: value.LOG_LEVEL,
 		analyticsWriteKey: value.ANALYTICS_WRITE_KEY,
+		proxySharedSecret: value.PROXY_SHARED_SECRET,
 	};
 };

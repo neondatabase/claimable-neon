@@ -205,19 +205,26 @@ All required; the process refuses to start without them.
 | `TOKEN_SIGNING_KEY` | Ed25519 private JWK. |
 | `KEY_ENCRYPTION_KEY` | 32 bytes base64; encrypts per-project Neon keys at rest. |
 | `PROJECT_TTL_SECONDS` | Optional. Defaults to 72 hours. |
+| `PROXY_SHARED_SECRET` | Shared with the Vercel forwarder. Required when `PUBLIC_ORIGIN` is not localhost. Leave blank for `bun run dev`. |
 
-## Planned deployment
+## Deployment
 
-The service deploys onto a Neon branch as a Neon Function. It runs next to its own Lakebase
-Postgres database, and Neon injects `DATABASE_URL` at runtime.
+The service runs as a Neon Function next to its Lakebase Postgres database. Neon injects
+`DATABASE_URL` at runtime.
 
-Neon Functions return an invocation URL in the form
-`https://<branch_id>-<slug>.compute.<cell>.<region>.aws.neon.tech/` and the slug is immutable after
-the first deploy ([Deploy and manage Neon Functions](https://neon.com/docs/compute/functions/deploy)).
-`claimable.neon.tech` resolves through a Cloudflare Worker that forwards to that URL, managed in
-`databricks-eng/neon-cloudflare`. Keeping the origin in a Worker variable rather than a DNS record
-matters because the hostname embeds a **branch ID**. Recreating the branch becomes a variable
-change instead of a DNS migration.
+Neon Functions return an invocation URL
+(`https://<branch_id>-<slug>.compute.<cell>.<region>.aws.neon.tech/`) and cannot bind a custom
+hostname yet. Callers therefore hit a Vercel Hono app (`server.ts`) that forwards method, path,
+query, and body to the Function. The Function requires `x-claimable-proxy-secret` on every route,
+including `/health`. Vercel overwrites any caller-supplied value of that header.
+
+`PUBLIC_ORIGIN` is the address callers reach — the Vercel URL now, `https://claimable.neon.tech`
+once DNS exists. Tokens and discovery documents use that origin. Changing it invalidates issued
+JWTs. The Function invocation URL is never the public origin.
+
+Pointing `claimable.neon.tech` at the Vercel project is a Cloudflare Terraform change in
+`databricks-eng/neon-cloudflare` (`proxied = false` CNAME to `cname.vercel-dns.com`). Drop the
+Vercel forwarder when Functions can serve the custom hostname.
 
 ## References
 

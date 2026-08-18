@@ -21,6 +21,7 @@ describe("analytics configuration", () => {
 		NEON_ORG_ID: "org-test",
 		TOKEN_SIGNING_KEY: '{"kty":"OKP"}',
 		KEY_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),
+		PROXY_SHARED_SECRET: "proxy-secret",
 	};
 
 	it("treats a missing or blank ANALYTICS_WRITE_KEY as unset", () => {

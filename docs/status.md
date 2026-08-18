@@ -18,6 +18,8 @@ target shape.
 | Configuration validation and localhost-only user-key guard | `lib/config/config.ts` | `test/config.test.ts` |
 | auth.md, llms.txt, and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
+| Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
+| Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts` |
 | Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
@@ -27,7 +29,7 @@ target shape.
 ## Not yet implemented
 
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
-- Neon Function deployment
+- `claimable.neon.tech` DNS (Cloudflare Terraform in `databricks-eng/neon-cloudflare`) and a dbx-owned Neon org for the Function. Prelaunch e2e uses the linked personal project and the Vercel URL as `PUBLIC_ORIGIN`.
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
 - Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.

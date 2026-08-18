@@ -1,0 +1,11 @@
+src/server.ts
+src/local.ts
+.env
+.env.*
+!.env.example
+test
+docs
+.neon
+.neon-build
+*.zip
+coverage

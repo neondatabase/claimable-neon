@@ -9,6 +9,7 @@ const validEnvironment = {
 	NEON_ORG_ID: "org-test",
 	TOKEN_SIGNING_KEY: '{"kty":"OKP"}',
 	KEY_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),
+	PROXY_SHARED_SECRET: "proxy-secret",
 };
 
 describe("service configuration", () => {
@@ -37,5 +38,25 @@ describe("service configuration", () => {
 		).toThrow(
 			"NEON_API_KEY_KIND=user_local is allowed only with a localhost PUBLIC_ORIGIN.",
 		);
+	});
+
+	it("allows a blank proxy secret on localhost", () => {
+		const config = loadConfig({
+			...validEnvironment,
+			PUBLIC_ORIGIN: "http://localhost:8787",
+			NEON_API_KEY_KIND: "user_local",
+			PROXY_SHARED_SECRET: "",
+		});
+
+		expect(config.proxySharedSecret).toBe("");
+	});
+
+	it("requires a proxy secret on a deployed origin", () => {
+		expect(() =>
+			loadConfig({
+				...validEnvironment,
+				PROXY_SHARED_SECRET: "",
+			}),
+		).toThrow("PROXY_SHARED_SECRET is required when PUBLIC_ORIGIN is not localhost.");
 	});
 });

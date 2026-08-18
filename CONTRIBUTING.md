@@ -21,6 +21,7 @@ and lint fixes.
 
 - `lib/analytics/`: `@segment/analytics-node` client for `https://track.neon.tech` (Zerobus)
 - `lib/capabilities/`: pure capability and scope decisions
+- `lib/edge/`: Vercel path-preserving forwarder and the Function shared-secret gate
 - `lib/proxy/`: the explicit Neon Management API allowlist
 - `lib/tokens/`: assertion and access-token signing and verification
 - `lib/store/`: schema, migrations, and state persistence
@@ -103,6 +104,7 @@ bun run secrets:generate >> .env.local
 - `NEON_API_KEY` is a newly created, revocable personal API key. Neon's endpoint for minting
   project-scoped keys rejects organization API keys.
 - Keep `NEON_API_KEY_KIND=user_local`. The process refuses this key mode on a non-localhost origin.
+- Leave `PROXY_SHARED_SECRET` blank locally. A non-localhost `PUBLIC_ORIGIN` refuses to boot without it.
 - Keep `NEON_ORG_ID=org-old-flower-82714815`, the documented throwaway Neon organization.
 
 Initialize the state schema and start the local API:
