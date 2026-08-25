@@ -100,7 +100,7 @@ ${base}/.well-known/oauth-authorization-server
 \`\`\`
 
 The authorization-server document's \`agent_auth.skill\` is the protocol file. \`identity_endpoint\`
-is where you register. \`claim_endpoint\` starts a claim with the identity assertion.
+is where you register. \`claim_endpoint\` accepts \`{"claim_token":"<identity_assertion>"}\`.
 
 ## Install the Neon CLI
 
