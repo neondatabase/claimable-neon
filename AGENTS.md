@@ -73,9 +73,9 @@ Callers reach the public origin (`PUBLIC_ORIGIN`, `https://claimable.neon.tech`)
 Functions cannot bind a custom hostname yet, so a Vercel Hono app in root `server.ts` forwards
 every path — including `/.well-known` — to the Function. The Function refuses every request that
 does not carry `x-claimable-proxy-secret`. Localhost with a blank `PROXY_SHARED_SECRET` skips that
-gate. Drop the forwarder when Functions can serve the custom URL. `ISSUER` is empty in production
-until neon.com serves `/auth.md` and `/.well-known/oauth-authorization-server/claimable`; then set
-it to `https://neon.com/claimable`.
+gate. Drop the forwarder when Functions can serve the custom URL. `ISSUER` is
+`https://neon.com/claimable`. `/auth.md` and `/.well-known/oauth-authorization-server` on this
+origin 301 to neon.com. PRM, JWKS, and the issue API stay here.
 
 ## Ship rule (pre-launch)
 

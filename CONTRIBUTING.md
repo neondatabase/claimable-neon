@@ -54,9 +54,9 @@ The authorization server is the path issuer `https://neon.com/claimable` so neon
 `aud` / `resource` and `token_endpoint` stay `https://claimable.neon.tech`.
 
 On this origin, `/auth.md` and `/.well-known/oauth-authorization-server` 301 to the neon.com
-URLs once `ISSUER` is set. Leave `ISSUER` empty while neon.com does not yet serve those paths;
-verification still accepts `PUBLIC_ORIGIN` as a legacy issuer after the flip so assertions minted
-before it remain exchangeable.
+URLs. Production `ISSUER` is `https://neon.com/claimable`. Leave `ISSUER` empty locally so
+localhost still serves those files. Verification still accepts `PUBLIC_ORIGIN` as a legacy
+issuer so assertions minted before the flip remain exchangeable.
 
 neon.com/docs holds a pointer and the human docs:
 

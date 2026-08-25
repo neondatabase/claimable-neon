@@ -197,13 +197,14 @@ All required; the process refuses to start without them.
 
 | Variable | Purpose |
 |---|---|
-| `PUBLIC_ORIGIN` | Public origin. Token issuer and discovery-document base. |
+| `PUBLIC_ORIGIN` | Public API origin. Token `aud` / `resource`, PRM, JWKS, and issue hosts. |
 | `DATABASE_URL` | This service's own state. Injected by Neon Functions. |
 | `NEON_API_KEY` | Personal API key for a dedicated service user in the org holding unclaimed projects. Neon rejects organization keys when minting project-scoped keys. |
 | `NEON_API_KEY_KIND` | `service_user` in deployment. `user_local` is accepted only when `PUBLIC_ORIGIN` uses localhost. |
 | `NEON_ORG_ID` | That organization. |
 | `TOKEN_SIGNING_KEY` | Ed25519 private JWK. |
 | `KEY_ENCRYPTION_KEY` | 32 bytes base64; encrypts per-project Neon keys at rest. |
+| `ISSUER` | Optional. JWT `iss`. Empty means `PUBLIC_ORIGIN`. Production is `https://neon.com/claimable`. |
 | `PROJECT_TTL_SECONDS` | Optional. Defaults to 72 hours. |
 | `PROXY_SHARED_SECRET` | Shared with the Vercel forwarder. Required when `PUBLIC_ORIGIN` is not localhost. Leave blank for `bun run dev`. |
 
@@ -218,8 +219,10 @@ hostname yet. Callers therefore hit a Vercel Hono app (`server.ts`) that forward
 query, and body to the Function. The Function requires `x-claimable-proxy-secret` on every route,
 including `/health`. Vercel overwrites any caller-supplied value of that header.
 
-`PUBLIC_ORIGIN` is `https://claimable.neon.tech`. Tokens and discovery documents use that origin.
-Changing it invalidates issued JWTs. The Function invocation URL is never the public origin.
+`PUBLIC_ORIGIN` is `https://claimable.neon.tech`. `ISSUER` is `https://neon.com/claimable`.
+`aud` / `resource` stay on this origin; JWT `iss` is the path issuer. Changing `PUBLIC_ORIGIN`
+invalidates issued JWTs. Changing `ISSUER` does not: verification still accepts the previous
+issuer. The Function invocation URL is never the public origin.
 
 `claimable.neon.tech` is an unproxied CNAME to `2676d711164b300e.vercel-dns-013.com` in
 `databricks-eng/neon-cloudflare` ([PR 196](https://github.com/databricks-eng/neon-cloudflare/pull/196)).
