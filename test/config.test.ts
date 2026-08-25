@@ -59,4 +59,39 @@ describe("service configuration", () => {
 			}),
 		).toThrow("PROXY_SHARED_SECRET is required when PUBLIC_ORIGIN is not localhost.");
 	});
+
+	it("defaults ISSUER to PUBLIC_ORIGIN", () => {
+		const config = loadConfig(validEnvironment);
+		expect(config.issuer).toBe("https://claimable.neon.tech");
+		expect(config.acceptedIssuers).toEqual(["https://claimable.neon.tech"]);
+		expect(config.discoveryRedirects).toBe(false);
+		expect(config.skillUrl).toBe("https://claimable.neon.tech/auth.md");
+	});
+
+	it("accepts a path issuer on another host and keeps PUBLIC_ORIGIN as a legacy issuer", () => {
+		const config = loadConfig({
+			...validEnvironment,
+			ISSUER: "https://neon.com/claimable",
+		});
+		expect(config.issuer).toBe("https://neon.com/claimable");
+		expect(config.audience).toBe("https://claimable.neon.tech/");
+		expect(config.acceptedIssuers).toEqual([
+			"https://neon.com/claimable",
+			"https://claimable.neon.tech",
+		]);
+		expect(config.skillUrl).toBe("https://neon.com/auth.md");
+		expect(config.authorizationServerMetadataUrl).toBe(
+			"https://neon.com/.well-known/oauth-authorization-server/claimable",
+		);
+		expect(config.discoveryRedirects).toBe(true);
+	});
+
+	it("refuses a cross-origin ISSUER with no path", () => {
+		expect(() =>
+			loadConfig({
+				...validEnvironment,
+				ISSUER: "https://neon.com",
+			}),
+		).toThrow("path identifier");
+	});
 });

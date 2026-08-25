@@ -1,8 +1,9 @@
 # Agent instructions
 
 An agent that needs a Neon account while the user is not around starts at neon.com `llms.txt`,
-then `auth.md`, then installs the Neon CLI and the `neon` and `neon-postgres` skills, and uses the
-CLI with `neon.ts`. Do not guess `POST /v1/agent/identity`. Raw HTTP is the protocol the CLI speaks.
+then `https://neon.com/auth.md`, then installs the Neon CLI and the `neon` and `neon-postgres`
+skills, and uses the CLI with `neon.ts`. Do not guess `POST /v1/agent/identity`. Raw HTTP is the
+protocol the CLI speaks.
 
 ## How an agent discovers the flow
 
@@ -10,17 +11,19 @@ From Neon docs:
 
 ```text
 GET https://neon.com/docs/llms.txt
-GET https://claimable.neon.tech/auth.md
+GET https://neon.com/auth.md
 ```
 
-`llms.txt` states the job (need a Neon account, user not around) and points at `auth.md` on this
-origin. The Claimable Postgres docs page may also appear in that index for humans and SEO. It is
-not on the agent path.
+`llms.txt` states the job (need a Neon account, user not around) and points at `https://neon.com/auth.md`.
+The Claimable Postgres docs page may also appear in that index for humans and SEO. It is not on the
+agent path.
 
-`auth.md` stays on this origin, next to the OAuth well-known documents. neon.com links to it; it
-does not host it. `https://neon.com/docs/llms.txt` is the docs catalog;
-`https://claimable.neon.tech/llms.txt` is this origin's index. Do not merge them or move
-`/auth.md` to neon.com. The split and the spec citation are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+`auth.md` is the protocol file at the neon.com root. Issue, PRM, and JWKS stay on this origin.
+The authorization server is the path issuer `https://neon.com/claimable`, published at
+`https://neon.com/.well-known/oauth-authorization-server/claimable`. neon.com's apex
+`/.well-known/oauth-authorization-server` is unused. JWT `iss` matches that path issuer;
+`aud` / `resource` remain this origin. The split and the spec citation are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 From this origin directly:
 
@@ -31,8 +34,10 @@ GET {origin}/.well-known/oauth-protected-resource
 GET {origin}/.well-known/oauth-authorization-server
 ```
 
-`agent_auth.skill` is `/auth.md`. `identity_endpoint` is where you register. `claim_endpoint`
-starts a claim with the identity assertion. The agent path is:
+On a deployed origin those last two discovery GETs for `/auth.md` and the authorization-server
+document 301 to neon.com. PRM and JWKS do not. `agent_auth.skill` is `https://neon.com/auth.md`.
+`identity_endpoint` is where you register. `claim_endpoint` starts a claim with the identity
+assertion. The agent path is:
 
 ```text
 npm i -g neon@latest          # https://neon.com/docs/cli/install.md
@@ -68,7 +73,9 @@ Callers reach the public origin (`PUBLIC_ORIGIN`, `https://claimable.neon.tech`)
 Functions cannot bind a custom hostname yet, so a Vercel Hono app in root `server.ts` forwards
 every path — including `/.well-known` — to the Function. The Function refuses every request that
 does not carry `x-claimable-proxy-secret`. Localhost with a blank `PROXY_SHARED_SECRET` skips that
-gate. Drop the forwarder when Functions can serve the custom URL.
+gate. Drop the forwarder when Functions can serve the custom URL. `ISSUER` is empty in production
+until neon.com serves `/auth.md` and `/.well-known/oauth-authorization-server/claimable`; then set
+it to `https://neon.com/claimable`.
 
 ## Ship rule (pre-launch)
 

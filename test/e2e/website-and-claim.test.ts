@@ -105,23 +105,25 @@ const discoverFromWebsite = async () => {
 	const llmsResponse = await fetch(`${websiteOrigin}/docs/llms.txt`);
 	expect(llmsResponse.status).toBe(200);
 	const llms = await llmsResponse.text();
-	expect(llms).toContain("https://claimable.neon.tech/auth.md");
+	expect(llms).toContain("https://neon.com/auth.md");
 
-	const authMarkdownResponse = await fetch(`${serviceBaseUrl}/auth.md`);
+	const authMarkdownResponse = await fetch(`${serviceBaseUrl}/auth.md`, {
+		redirect: "follow",
+	});
 	expect(authMarkdownResponse.status).toBe(200);
 	const authMarkdown = await authMarkdownResponse.text();
-	expect(authMarkdown).toContain(`${serviceBaseUrl}/llms.txt`);
-	expect(authMarkdown).toContain(`${serviceBaseUrl}/v1/agent/identity`);
-	expect(authMarkdown).toContain(
-		`${serviceBaseUrl}/v1/projects/<project_id>/credentials`,
-	);
+	expect(authMarkdown).toContain("/v1/agent/identity");
+	expect(authMarkdown).toContain("/v1/projects/<project_id>/credentials");
 
 	const metadata = authorizationServerMetadata.parse(
 		await responseJson(
-			await fetch(`${serviceBaseUrl}/.well-known/oauth-authorization-server`),
+			await fetch(`${serviceBaseUrl}/.well-known/oauth-authorization-server`, {
+				redirect: "follow",
+			}),
 		),
 	);
-	expect(metadata.agent_auth.skill).toBe(`${serviceBaseUrl}/auth.md`);
+	expect(metadata.agent_auth.skill).toMatch(/\/auth\.md$/);
+	expect(metadata.token_endpoint).toContain("/v1/oauth2/token");
 	return metadata;
 };
 

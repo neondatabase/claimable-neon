@@ -11,6 +11,7 @@ export default defineConfig({
 					// The service validates every value at boot, so a deploy with an empty value
 					// still fails loudly rather than running with partial configuration.
 					PUBLIC_ORIGIN: process.env.PUBLIC_ORIGIN ?? "",
+					ISSUER: process.env.ISSUER ?? "",
 					NEON_API_KEY: process.env.NEON_API_KEY ?? "",
 					NEON_API_KEY_KIND: "service_user",
 					NEON_ORG_ID: process.env.NEON_ORG_ID ?? "",

@@ -8,6 +8,10 @@
 
 import { z } from "zod";
 
+import {
+	authorizationServerMetadataUrl,
+	skillUrlForIssuer,
+} from "../discovery/discovery.ts";
 import { ServiceError } from "../errors/errors.ts";
 import { isLocalhostHostname } from "./origin.ts";
 
@@ -16,10 +20,19 @@ const MEBIBYTE = 1024 * 1024;
 
 const schema = z.object({
 	/**
-	 * The public origin. Used as the token issuer and in the discovery documents, so it must be
-	 * the address callers actually reach — not the Neon Function's internal invocation URL.
+	 * The public resource origin callers reach — token `aud`, PRM `resource`, and API hosts.
+	 * Not the Neon Function's internal invocation URL.
 	 */
 	PUBLIC_ORIGIN: z.string().url(),
+
+	/**
+	 * Authorization-server identifier (JWT `iss`). Empty means PUBLIC_ORIGIN. A cross-origin
+	 * value must include a path so it does not occupy that host's root well-known document.
+	 */
+	ISSUER: z
+		.string()
+		.optional()
+		.transform((value) => value?.trim() ?? ""),
 
 	/** Postgres for this service's own state. Injected by Neon Functions for its branch. */
 	DATABASE_URL: z.string().min(1),
@@ -96,6 +109,11 @@ export type Config = {
 	/** The `resource` value tokens are bound to. Always the origin with a trailing slash. */
 	audience: string;
 	issuer: string;
+	/** Issuers accepted at verification. Includes PUBLIC_ORIGIN so pre-switch assertions still exchange. */
+	acceptedIssuers: readonly string[];
+	skillUrl: string;
+	authorizationServerMetadataUrl: string;
+	discoveryRedirects: boolean;
 	databaseUrl: string;
 	neonApiKey: string;
 	neonApiKeyKind: "service_user" | "user_local";
@@ -137,6 +155,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 	}
 
 	const origin = value.PUBLIC_ORIGIN.replace(/\/+$/, "");
+	const issuer = resolveIssuer(value.ISSUER, origin);
 	const hostname = new URL(origin).hostname;
 	const localhost = isLocalhostHostname(hostname);
 	if (value.NEON_API_KEY_KIND === "user_local" && !localhost) {
@@ -155,7 +174,11 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 	return {
 		publicOrigin: origin,
 		audience: `${origin}/`,
-		issuer: origin,
+		issuer,
+		acceptedIssuers: [...new Set([issuer, origin])],
+		skillUrl: skillUrlForIssuer(issuer),
+		authorizationServerMetadataUrl: authorizationServerMetadataUrl(issuer),
+		discoveryRedirects: new URL(issuer).origin !== new URL(origin).origin,
 		databaseUrl: value.DATABASE_URL,
 		neonApiKey: value.NEON_API_KEY,
 		neonApiKeyKind: value.NEON_API_KEY_KIND,
@@ -177,4 +200,36 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 		analyticsWriteKey: value.ANALYTICS_WRITE_KEY,
 		proxySharedSecret: value.PROXY_SHARED_SECRET,
 	};
+};
+
+export const tokenVerifyExpected = (
+	config: Config,
+): { issuer: string; audience: string; acceptedIssuers: readonly string[] } => ({
+	issuer: config.issuer,
+	audience: config.audience,
+	acceptedIssuers: config.acceptedIssuers,
+});
+
+const resolveIssuer = (raw: string, publicOrigin: string): string => {
+	if (raw.length === 0) return publicOrigin;
+	let parsed: URL;
+	try {
+		parsed = new URL(raw);
+	} catch {
+		throw new ServiceError("internal_error", "ISSUER must be an absolute URL.");
+	}
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+		throw new ServiceError("internal_error", "ISSUER must use http or https.");
+	}
+	const issuer = `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+	if (parsed.origin !== new URL(publicOrigin).origin) {
+		const path = parsed.pathname.replace(/\/+$/, "");
+		if (path === "" || path === "/") {
+			throw new ServiceError(
+				"internal_error",
+				"A cross-origin ISSUER must be a path identifier so it does not occupy /.well-known/oauth-authorization-server on that host.",
+			);
+		}
+	}
+	return issuer;
 };

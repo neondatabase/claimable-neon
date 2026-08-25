@@ -182,7 +182,7 @@ const requireString = (claims: VerifiedClaims, field: string): string => {
 export const verifyAssertion = async (
 	key: SigningKey,
 	token: string,
-	expected: { issuer: string; audience: string },
+	expected: { issuer: string; audience: string; acceptedIssuers?: readonly string[] },
 ): Promise<AssertionClaims> => {
 	const claims = await verifySignature(key, token);
 
@@ -211,7 +211,7 @@ export const verifyAssertion = async (
 export const verifyAccessToken = async (
 	key: SigningKey,
 	token: string,
-	expected: { issuer: string; audience: string },
+	expected: { issuer: string; audience: string; acceptedIssuers?: readonly string[] },
 ): Promise<AccessTokenClaims & { scopes: Scope[] }> => {
 	const claims = await verifySignature(key, token);
 
@@ -257,9 +257,10 @@ export const verifyAccessToken = async (
 
 const assertIssuerAudience = (
 	claims: VerifiedClaims,
-	expected: { issuer: string; audience: string },
+	expected: { issuer: string; audience: string; acceptedIssuers?: readonly string[] },
 ): void => {
-	if (claims.iss !== expected.issuer) {
+	const allowed = new Set([expected.issuer, ...(expected.acceptedIssuers ?? [])]);
+	if (typeof claims.iss !== "string" || !allowed.has(claims.iss)) {
 		throw new ServiceError("invalid_grant", "Token was issued by a different service.");
 	}
 	if (claims.aud !== expected.audience) {

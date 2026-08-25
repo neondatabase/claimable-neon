@@ -36,26 +36,33 @@ feature in its own directory under `lib/`.
 
 ## Where `auth.md` lives
 
-`auth.md` is served on this service origin, next to the OAuth well-known documents:
+`auth.md` is served at the neon.com root. This origin keeps PRM, JWKS, and the issue API:
 
 ```text
-GET https://claimable.neon.tech/auth.md
+GET https://neon.com/auth.md
+GET https://neon.com/.well-known/oauth-authorization-server/claimable
 GET https://claimable.neon.tech/.well-known/oauth-protected-resource
-GET https://claimable.neon.tech/.well-known/oauth-authorization-server
+GET https://claimable.neon.tech/.well-known/jwks.json
 ```
 
 The [auth.md spec](https://workos.com/auth-md/docs/auth-md) hosts the file at the **service root**
 (`https://service.example.com/auth.md`). `agent_auth.skill` points at that file. Product copy that
 is not needed to register or call the API belongs in main documentation, not in `auth.md`.
 
-Do not put `auth.md` on neon.com. neon.com is the docs host, not the resource or authorization
-server. `https://neon.com/auth.md` would describe registration against neon.com.
+The authorization server is the path issuer `https://neon.com/claimable` so neon.com's apex
+`/.well-known/oauth-authorization-server` stays unused (RFC 8414). JWT `iss` is that issuer.
+`aud` / `resource` and `token_endpoint` stay `https://claimable.neon.tech`.
 
-neon.com holds a **pointer**, not a copy (a second copy would drift from the live protocol file):
+On this origin, `/auth.md` and `/.well-known/oauth-authorization-server` 301 to the neon.com
+URLs once `ISSUER` is set. Leave `ISSUER` empty while neon.com does not yet serve those paths;
+verification still accepts `PUBLIC_ORIGIN` as a legacy issuer after the flip so assertions minted
+before it remain exchangeable.
+
+neon.com/docs holds a pointer and the human docs:
 
 ```text
 GET https://neon.com/docs/llms.txt
-GET https://claimable.neon.tech/auth.md
+GET https://neon.com/auth.md
 ```
 
 The Claimable Postgres docs page can stay in the neon.com catalog for humans and SEO. It is not
@@ -65,11 +72,10 @@ Those are two different `llms.txt` files. Do not merge them:
 
 | URL | Job |
 |---|---|
-| `https://neon.com/docs/llms.txt` | Neon docs catalog. Common Queries states the job (need an account, user not around) and points at `auth.md` on this origin. |
-| `https://claimable.neon.tech/llms.txt` | Origin index ([llmstxt.org](https://llmstxt.org)) so an agent that already found this host can find `/auth.md` without guessing. |
+| `https://neon.com/docs/llms.txt` | Neon docs catalog. Common Queries states the job (need an account, user not around) and points at `https://neon.com/auth.md`. |
+| `https://claimable.neon.tech/llms.txt` | Origin index ([llmstxt.org](https://llmstxt.org)) so an agent that already found this host can find the skill without guessing. |
 
-The live https://neon.com/docs/llms.txt does not yet point at
-`https://claimable.neon.tech/auth.md`.
+Do not occupy `https://neon.com/.well-known/oauth-authorization-server` (no path).
 
 ## Security and API invariants
 
@@ -124,7 +130,7 @@ The pre-claim suite provisions a real project, uses Postgres, Managed Better Aut
 the scoped management proxy, then deletes the project.
 
 The full claim-ceremony test also starts from the website `/docs/llms.txt`, follows
-`https://claimable.neon.tech/auth.md`, accepts the project transfer, waits for
+`https://neon.com/auth.md`, accepts the project transfer, waits for
 reconciliation, and verifies that
 the pre-claim database password, assertion, and access tokens no longer work, and that Auth and
 the Data API still do.

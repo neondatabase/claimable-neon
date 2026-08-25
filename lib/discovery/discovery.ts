@@ -2,52 +2,75 @@ import { SCOPES } from "../capabilities/scopes.ts";
 
 const originWithoutTrailingSlash = (origin: string): string => origin.replace(/\/+$/, "");
 
-// auth.md is served on this origin (resource + authorization server), not on neon.com.
-// Spec: https://workos.com/auth-md/docs/auth-md
-// neon.com/docs holds a pointer. /llms.txt here is an origin index, not a copy of
-// https://neon.com/docs/llms.txt. See CONTRIBUTING.md.
+export type DiscoveryOrigins = {
+	resourceOrigin: string;
+	issuer: string;
+};
 
-export const protectedResourceMetadata = (origin: string) => {
-	const base = originWithoutTrailingSlash(origin);
+/** Skill file lives at the issuer host root, not under a path issuer suffix. */
+export const skillUrlForIssuer = (issuer: string): string =>
+	`${new URL(issuer).origin}/auth.md`;
+
+/**
+ * RFC 8414 path insertion: issuer `https://example.com/claimable` is published at
+ * `https://example.com/.well-known/oauth-authorization-server/claimable`. An issuer
+ * with no path uses the well-known document at the host root.
+ */
+export const authorizationServerMetadataUrl = (issuer: string): string => {
+	const url = new URL(issuer);
+	const path = url.pathname.replace(/\/+$/, "").replace(/^\//, "");
+	if (path.length === 0) {
+		return `${url.origin}/.well-known/oauth-authorization-server`;
+	}
+	return `${url.origin}/.well-known/oauth-authorization-server/${path}`;
+};
+
+export const protectedResourceMetadata = (origins: DiscoveryOrigins) => {
+	const resource = originWithoutTrailingSlash(origins.resourceOrigin);
 	return {
-		resource: `${base}/`,
-		authorization_servers: [base],
+		resource: `${resource}/`,
+		authorization_servers: [originWithoutTrailingSlash(origins.issuer)],
 		scopes_supported: SCOPES,
 		bearer_methods_supported: ["header"] as const,
 	};
 };
 
-export const authorizationServerMetadata = (origin: string) => {
-	const base = originWithoutTrailingSlash(origin);
+export const authorizationServerMetadata = (origins: DiscoveryOrigins) => {
+	const resource = originWithoutTrailingSlash(origins.resourceOrigin);
+	const issuer = originWithoutTrailingSlash(origins.issuer);
 	return {
-		issuer: base,
-		token_endpoint: `${base}/v1/oauth2/token`,
-		revocation_endpoint: `${base}/v1/oauth2/revoke`,
-		jwks_uri: `${base}/.well-known/jwks.json`,
+		issuer,
+		token_endpoint: `${resource}/v1/oauth2/token`,
+		revocation_endpoint: `${resource}/v1/oauth2/revoke`,
+		jwks_uri: `${resource}/.well-known/jwks.json`,
 		grant_types_supported: ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
 		agent_auth: {
-			skill: `${base}/auth.md`,
-			identity_endpoint: `${base}/v1/agent/identity`,
-			claim_endpoint: `${base}/v1/agent/identity/claim`,
+			skill: skillUrlForIssuer(issuer),
+			identity_endpoint: `${resource}/v1/agent/identity`,
+			claim_endpoint: `${resource}/v1/agent/identity/claim`,
 			identity_types_supported: ["anonymous"],
 		},
 	};
 };
 
-export const llmsTxt = (origin: string): string => {
-	const base = originWithoutTrailingSlash(origin);
+export const llmsTxt = (origins: DiscoveryOrigins): string => {
+	const resource = originWithoutTrailingSlash(origins.resourceOrigin);
+	const issuer = originWithoutTrailingSlash(origins.issuer);
+	const skill = skillUrlForIssuer(issuer);
+	const asMetadata = authorizationServerMetadataUrl(issuer);
 	return `# Claimable Neon
 
 > Need a Neon account and the user is not around: provision a project now; they claim it later.
 
 Agents start here, then read auth.md. Do not guess the API.
 
-- [${base}/auth.md](${base}/auth.md): register, token exchange, credentials, Management API proxy, claim
-- [${base}/.well-known/oauth-authorization-server](${base}/.well-known/oauth-authorization-server): identity_endpoint, token_endpoint, claim_endpoint
-- [${base}/.well-known/oauth-protected-resource](${base}/.well-known/oauth-protected-resource)
+- [${skill}](${skill}): register, token exchange, credentials, Management API proxy, claim
+- [${asMetadata}](${asMetadata}): identity_endpoint, token_endpoint, claim_endpoint
+- [${resource}/.well-known/oauth-protected-resource](${resource}/.well-known/oauth-protected-resource)
 `;
 };
 
+/** Localhost fixture. Production serves https://neon.com/auth.md and 301s this path. */
 export const authMarkdown = (origin: string): string => {
 	const base = originWithoutTrailingSlash(origin);
 	return `# Claimable Neon for agents
@@ -61,14 +84,14 @@ Claimable Neon issues an identity assertion and credentials scoped to one projec
 
 Start at \`llms.txt\`, then this document. Do not guess \`POST /v1/agent/identity\`.
 
-This file is hosted on this origin, next to the OAuth well-known documents. neon.com holds the
-product page and a pointer here. Do not look for \`/auth.md\` on neon.com.
+Production hosts this file at https://neon.com/auth.md. This origin serves it for local
+development.
 
 From Neon docs:
 
 \`\`\`text
 https://neon.com/docs/llms.txt
-${base}/auth.md
+https://neon.com/auth.md
 \`\`\`
 
 From this origin:
@@ -80,8 +103,8 @@ ${base}/.well-known/oauth-protected-resource
 ${base}/.well-known/oauth-authorization-server
 \`\`\`
 
-The authorization-server document's \`agent_auth.skill\` is this file. \`identity_endpoint\` is
-where you register. \`claim_endpoint\` starts a claim with the identity assertion.
+The authorization-server document's \`agent_auth.skill\` is the protocol file. \`identity_endpoint\`
+is where you register. \`claim_endpoint\` starts a claim with the identity assertion.
 
 ## Install the Neon CLI
 

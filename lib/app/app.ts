@@ -11,7 +11,7 @@ import {
 import { hasScope, scopesForCapabilities } from "../capabilities/scopes.ts";
 import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
 import { prepareClaimTransfer, reconcileAcceptedClaim } from "../claims/reconcile.ts";
-import type { Config } from "../config/config.ts";
+import { type Config, tokenVerifyExpected } from "../config/config.ts";
 import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts";
 import {
 	authMarkdown,
@@ -270,20 +270,22 @@ const revocationJti = async (
 	token: string,
 ): Promise<string | null> => {
 	try {
-		const claims = await verifyAccessToken(dependencies.signingKey, token, {
-			issuer: dependencies.config.issuer,
-			audience: dependencies.config.audience,
-		});
+		const claims = await verifyAccessToken(
+			dependencies.signingKey,
+			token,
+			tokenVerifyExpected(dependencies.config),
+		);
 		return claims.jti;
 	} catch (error) {
 		if (!isUnverifiableRevocationToken(error)) throw error;
 	}
 
 	try {
-		const claims = await verifyAssertion(dependencies.signingKey, token, {
-			issuer: dependencies.config.issuer,
-			audience: dependencies.config.audience,
-		});
+		const claims = await verifyAssertion(
+			dependencies.signingKey,
+			token,
+			tokenVerifyExpected(dependencies.config),
+		);
 		return claims.jti;
 	} catch (error) {
 		if (!isUnverifiableRevocationToken(error)) throw error;
@@ -301,10 +303,11 @@ const authenticate = async (
 	dependencies: AppDependencies,
 ): Promise<AuthenticatedRegistration> => {
 	const token = bearerToken(authorization);
-	const claims = await verifyAccessToken(dependencies.signingKey, token, {
-		issuer: dependencies.config.issuer,
-		audience: dependencies.config.audience,
-	});
+	const claims = await verifyAccessToken(
+		dependencies.signingKey,
+		token,
+		tokenVerifyExpected(dependencies.config),
+	);
 	if (await isTokenRevoked(dependencies.sql, claims.jti)) {
 		throw new ServiceError("unauthorized", "This access token was revoked.");
 	}
@@ -333,10 +336,11 @@ const authenticateClaimStatus = async (
 	dependencies: AppDependencies,
 ): Promise<AuthenticatedRegistration> => {
 	const token = bearerToken(authorization);
-	const claims = await verifyAccessToken(dependencies.signingKey, token, {
-		issuer: dependencies.config.issuer,
-		audience: dependencies.config.audience,
-	});
+	const claims = await verifyAccessToken(
+		dependencies.signingKey,
+		token,
+		tokenVerifyExpected(dependencies.config),
+	);
 	const registration = await findRegistration(dependencies.sql, claims.registration_id);
 	if (!registration) {
 		throw new ServiceError("unauthorized", "Access token registration does not exist.");
@@ -719,17 +723,38 @@ export const createApp = (dependencies: AppDependencies) => {
 		context.json({ status: "ok", service: "claimable-neon" }),
 	);
 	app.get("/llms.txt", (context) =>
-		context.text(llmsTxt(dependencies.config.publicOrigin)),
+		context.text(
+			llmsTxt({
+				resourceOrigin: dependencies.config.publicOrigin,
+				issuer: dependencies.config.issuer,
+			}),
+		),
 	);
-	app.get("/auth.md", (context) =>
-		context.text(authMarkdown(dependencies.config.publicOrigin)),
-	);
+	app.get("/auth.md", (context) => {
+		if (dependencies.config.discoveryRedirects) {
+			return context.redirect(dependencies.config.skillUrl, 301);
+		}
+		return context.text(authMarkdown(dependencies.config.publicOrigin));
+	});
 	app.get("/.well-known/oauth-protected-resource", (context) =>
-		context.json(protectedResourceMetadata(dependencies.config.publicOrigin)),
+		context.json(
+			protectedResourceMetadata({
+				resourceOrigin: dependencies.config.publicOrigin,
+				issuer: dependencies.config.issuer,
+			}),
+		),
 	);
-	app.get("/.well-known/oauth-authorization-server", (context) =>
-		context.json(authorizationServerMetadata(dependencies.config.publicOrigin)),
-	);
+	app.get("/.well-known/oauth-authorization-server", (context) => {
+		if (dependencies.config.discoveryRedirects) {
+			return context.redirect(dependencies.config.authorizationServerMetadataUrl, 301);
+		}
+		return context.json(
+			authorizationServerMetadata({
+				resourceOrigin: dependencies.config.publicOrigin,
+				issuer: dependencies.config.issuer,
+			}),
+		);
+	});
 	app.get("/.well-known/jwks.json", (context) =>
 		context.json(publicJwks([dependencies.signingKey])),
 	);
@@ -877,10 +902,11 @@ export const createApp = (dependencies: AppDependencies) => {
 				`Requested resource must be "${dependencies.config.audience}".`,
 			);
 		}
-		const assertion = await verifyAssertion(dependencies.signingKey, request.assertion, {
-			issuer: dependencies.config.issuer,
-			audience: dependencies.config.audience,
-		});
+		const assertion = await verifyAssertion(
+			dependencies.signingKey,
+			request.assertion,
+			tokenVerifyExpected(dependencies.config),
+		);
 		if (await isTokenRevoked(dependencies.sql, assertion.jti)) {
 			throw new ServiceError("invalid_grant", "Identity assertion was revoked.");
 		}
@@ -943,10 +969,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		const assertion = await verifyAssertion(
 			dependencies.signingKey,
 			request.claim_token,
-			{
-				issuer: dependencies.config.issuer,
-				audience: dependencies.config.audience,
-			},
+			tokenVerifyExpected(dependencies.config),
 		);
 		if (await isTokenRevoked(dependencies.sql, assertion.jti)) {
 			throw new ServiceError("invalid_grant", "Claim token was revoked.");

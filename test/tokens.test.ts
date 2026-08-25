@@ -60,4 +60,23 @@ describe("agent tokens", () => {
 			verifyAssertion(key, access.token, { issuer, audience }),
 		).rejects.toMatchObject({ code: "invalid_grant" });
 	});
+
+	it("accepts an assertion minted under a previous issuer", async () => {
+		const key = await generateSigningKey();
+		const previous = "https://claimable.neon.tech";
+		const next = "https://neon.com/claimable";
+		const assertion = await mintAssertion(key, {
+			issuer: previous,
+			audience: `${previous}/`,
+			registrationId: "reg_test",
+			expiresAt: new Date(Date.now() + 60_000),
+		});
+
+		const verified = await verifyAssertion(key, assertion.token, {
+			issuer: next,
+			audience: `${previous}/`,
+			acceptedIssuers: [previous],
+		});
+		expect(verified.iss).toBe(previous);
+	});
 });

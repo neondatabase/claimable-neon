@@ -59,20 +59,20 @@ API. The API records the request and returns `requires_claim` with the service-s
 
 ## API
 
-Discovery lives at the root; everything else is under `/v1`.
+Discovery: protocol file and path-issuer metadata on neon.com; issue, PRM, and JWKS on this origin.
 
 ```http
+GET  https://neon.com/auth.md
+GET  https://neon.com/.well-known/oauth-authorization-server/claimable
 GET  /llms.txt
-GET  /auth.md
 GET  /.well-known/oauth-protected-resource
-GET  /.well-known/oauth-authorization-server
 GET  /.well-known/jwks.json
 ```
 
-`llms.txt` points at `auth.md`. `auth.md` is the protocol file on this origin, not on neon.com.
-The authorization-server document names `identity_endpoint`, `token_endpoint`, and
-`claim_endpoint`. Agents arriving from Neon docs start at https://neon.com/docs/llms.txt →
-https://claimable.neon.tech/auth.md
+`llms.txt` on this origin points at `https://neon.com/auth.md`. The authorization-server document
+names `identity_endpoint`, `token_endpoint`, and `claim_endpoint` on this origin. Agents arriving
+from Neon docs start at https://neon.com/docs/llms.txt → https://neon.com/auth.md
+JWT `iss` is `https://neon.com/claimable`. `aud` / `resource` remain `https://claimable.neon.tech/`.
 
 Register, then exchange the assertion for an access token:
 

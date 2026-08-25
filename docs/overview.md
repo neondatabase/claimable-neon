@@ -49,10 +49,10 @@ GET https://neon.com/docs/llms.txt
 ```
 
 https://neon.com/docs/llms.txt lists the job — no Neon account yet: provision one now; they claim
-it later — and points at https://claimable.neon.tech/auth.md, the protocol file on the service
-origin, next to the OAuth well-known documents. neon.com holds that pointer, not a copy of auth.md.
-Spec: https://workos.com/auth-md/docs/auth-md. Fetch auth.md only when `neon claim` is not a
-command, or `neon claim --help` does not list `create`.
+it later — and points at https://neon.com/auth.md. Issue, PRM, and JWKS stay on
+https://claimable.neon.tech. The authorization server is the path issuer
+https://neon.com/claimable. Spec: https://workos.com/auth-md/docs/auth-md. Fetch auth.md only when
+`neon claim` is not a command, or `neon claim --help` does not list `create`.
 
 Claimable Neon is for users who do not have a Neon account yet. If the agent already has a Neon
 account then the agent is urged to use it. If authentication fails or a command waits on a browser, ask
@@ -100,7 +100,7 @@ project now lives in the human's org; the assertion is revoked
 ```
 
 If `neon claim` is not a command, or `neon claim --help` does not list `create`, GET
-https://claimable.neon.tech/auth.md and use REST. auth.md is the field authority.
+https://neon.com/auth.md and use REST. auth.md is the field authority.
 
 ```http
 POST /v1/agent/identity
@@ -142,7 +142,7 @@ Until a dedicated write key and a dbt table exist, https://track.neon.tech is a 
 ### What we cannot see yet
 
 Steps 1–2 are unauthenticated GETs (https://neon.com/docs/llms.txt,
-https://claimable.neon.tech/auth.md, well-known). They are not usage events. Fall-off before
+https://neon.com/auth.md, well-known). They are not usage events. Fall-off before
 `POST /v1/agent/identity` is invisible.
 
 Errors are not usage events. An agent that hits `capability_requires_claim` or `invalid_request`
@@ -154,7 +154,7 @@ registration; nothing records “expired unclaimed.”
 ### Feedback
 
 https://workos.com/auth-md/docs/apps asks auth.md for a contact channel for integration issues.
-https://claimable.neon.tech/auth.md has none.
+https://neon.com/auth.md has none.
 
 A contact line in auth.md (email or GitHub) matches the spec and produces no structured data.
 
