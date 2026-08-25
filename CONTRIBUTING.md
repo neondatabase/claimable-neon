@@ -65,7 +65,7 @@ GET https://neon.com/docs/llms.txt
 GET https://neon.com/auth.md
 ```
 
-The Claimable Postgres docs page can stay in the neon.com catalog for humans and SEO. It is not
+The Claimable Neon docs page can stay in the neon.com catalog for humans and SEO. It is not
 on the agent path.
 
 Those are two different `llms.txt` files. Do not merge them:

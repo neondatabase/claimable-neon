@@ -15,7 +15,7 @@ GET https://neon.com/auth.md
 ```
 
 `llms.txt` states the job (need a Neon account, user not around) and points at `https://neon.com/auth.md`.
-The Claimable Postgres docs page may also appear in that index for humans and SEO. It is not on the
+The Claimable Neon docs page may also appear in that index for humans and SEO. It is not on the
 agent path.
 
 `auth.md` is the protocol file at the neon.com root. Issue, PRM, and JWKS stay on this origin.

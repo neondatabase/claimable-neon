@@ -12,7 +12,7 @@ new API will be https://claimable.neon.tech - built for agents.
 | `POST https://neon.new/api/v1/database` | Live until sunset, 1–2 months after the website redirect. Then neon.new is gone. |
 | npm `neon-new` / `get-db` | Live. Deprecation warning after announce, then deprecated. |
 | https://claimable.neon.tech | Live. Function + Vercel forwarder. `PUBLIC_ORIGIN` is this host. |
-| https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. After announce: Claimable Neon docs will be added and neon.new API docs come off neon.com. |
+| https://neon.com/docs/reference/claimable-neon | Claimable Neon docs on neon.com. |
 | Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
 | Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, and `PUBLIC_ORIGIN` exist. Remaining blockers for going live: dedicated service user, write key, cron. |
 
@@ -32,7 +32,7 @@ will be called "Claimable Neon" and will be a deeply integrated userless claim f
 
 Live product: one unauthenticated `POST https://neon.new/api/v1/database` with `{ "ref": "…" }`
 returns `connection_string` and `claim_url`. No account. Unclaimed databases expire in 72 hours
-(100 MB storage, 1 GB transfer). Docs: https://neon.com/docs/reference/claimable-postgres
+(100 MB storage, 1 GB transfer). Docs: https://neon.com/docs/reference/claimable-neon
 
 Claim starts at create. neon.new opens a Neon transfer with no `ttl_seconds`, so the request expires
 after 24 hours and hours 24–72 are unclaimable. The agent holds a password in `.env`. That create
@@ -159,7 +159,7 @@ https://neon.com/auth.md has none.
 A contact line in auth.md (email or GitHub) matches the spec and produces no structured data.
 
 https://neon.com/api/docs-feedback already sits on neon.com docs pages. Agents reading
-https://neon.com/docs/reference/claimable-postgres.md can use it. It does not attach to a
+https://neon.com/docs/reference/claimable-neon.md can use it. It does not attach to a
 registration.
 
 The shape that sits next to this funnel is `POST /v1/feedback` on this origin: optional

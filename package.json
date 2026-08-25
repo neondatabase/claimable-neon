@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "Provisions temporary Lakebase Postgres databases on Neon for AI agents over the auth.md protocol.",
+	"description": "Provisions temporary Neon projects for AI agents over the auth.md protocol.",
 	"engines": {
 		"node": ">=24"
 	},
