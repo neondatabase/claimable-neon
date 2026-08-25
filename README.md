@@ -219,12 +219,13 @@ query, and body to the Function. The Function requires `x-claimable-proxy-secret
 including `/health`. Vercel overwrites any caller-supplied value of that header.
 
 `PUBLIC_ORIGIN` is the address callers reach — the Vercel URL now, `https://claimable.neon.tech`
-once DNS exists. Tokens and discovery documents use that origin. Changing it invalidates issued
-JWTs. The Function invocation URL is never the public origin.
+once that hostname serves HTTPS and `PUBLIC_ORIGIN` is switched. Tokens and discovery documents
+use that origin. Changing it invalidates issued JWTs. The Function invocation URL is never the
+public origin.
 
-Pointing `claimable.neon.tech` at the Vercel project is a Cloudflare Terraform change in
-`databricks-eng/neon-cloudflare` (`proxied = false` CNAME to `cname.vercel-dns.com`). Drop the
-Vercel forwarder when Functions can serve the custom hostname.
+`claimable.neon.tech` is an unproxied CNAME to `2676d711164b300e.vercel-dns-013.com` in
+`databricks-eng/neon-cloudflare` ([PR 196](https://github.com/databricks-eng/neon-cloudflare/pull/196)).
+Drop the Vercel forwarder when Functions can serve the custom hostname.
 
 ## References
 
