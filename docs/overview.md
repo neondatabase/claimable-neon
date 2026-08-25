@@ -11,10 +11,10 @@ new API will be https://claimable.neon.tech - built for agents.
 | https://neon.new website | Live. After announce: banner pointing at Claimable Neon docs on https://neon.com. Then redirect to console project creation. |
 | `POST https://neon.new/api/v1/database` | Live until sunset, 1–2 months after the website redirect. Then neon.new is gone. |
 | npm `neon-new` / `get-db` | Live. Deprecation warning after announce, then deprecated. |
-| https://claimable.neon.tech | Function + Vercel forwarder. DNS live (neon-cloudflare#196). HTTPS not presenting a cert yet. Public origin still https://claimable-neon.vercel.app. |
+| https://claimable.neon.tech | Live. Function + Vercel forwarder. `PUBLIC_ORIGIN` is this host. |
 | https://neon.com/docs/reference/claimable-postgres | Live neon.new docs. After announce: Claimable Neon docs will be added and neon.new API docs come off neon.com. |
 | Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
-| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, and DNS exist. Remaining blockers for going live: HTTPS/`PUBLIC_ORIGIN` cutover, dedicated service user, write key, cron. |
+| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, and `PUBLIC_ORIGIN` exist. Remaining blockers for going live: dedicated service user, write key, cron. |
 
 ## Motivation
 
@@ -201,10 +201,9 @@ Two pull requests. The service itself went to `main` as commits between them.
 | https://github.com/neondatabase/claimable-neon/commit/a7ddf2acdfe4fb325993866e5b8d19f1f6a3ec9d | Claim prep rotates issued Postgres passwords only; Auth and Data API transfer with the project. |
 | https://github.com/neondatabase/claimable-neon/pull/2 | `usage_events` + https://track.neon.tech. Reconcile under a reserved postgres.js connection so the status poll can finish after the human accepts. |
 
-Still open: HTTPS on `claimable.neon.tech` (DNS is live; the hostname is not presenting a cert), a
-dedicated service user, a dedicated https://track.neon.tech write key, and automatic deletion of
-expired unclaimed projects (blocked on Functions cron). The Vercel forwarder is temporary until
-Functions can bind a custom hostname.
+Still open: a dedicated service user, a dedicated https://track.neon.tech write key, and automatic
+deletion of expired unclaimed projects (blocked on Functions cron). The Vercel forwarder is
+temporary until Functions can bind a custom hostname.
 
 ## Appendix: Sunsetting neon.new
 
@@ -249,7 +248,8 @@ new work. `claim_url` is a bookmark: first visit starts the Claimable Neon cerem
 
 ### What not to do
 
-- Banner, swap neon.com docs, warn CLIs, or outreach while https://claimable.neon.tech 404s.
+- Banner, swap neon.com docs, warn CLIs, or outreach before appendix step 1 is complete
+  (dedicated service user, write key, verified origin).
 - Redirect the website or remove the API before the 1–2 month windows.
 - Keep `startTransfer` at create “for compatibility.”
 - 301 `POST /api/v1/database` to `POST /v1/agent/identity`.

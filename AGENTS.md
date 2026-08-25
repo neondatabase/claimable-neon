@@ -64,7 +64,7 @@ A service that provisions unclaimed Neon projects for AI agents and issues `auth
 for them. It sits in the request path of every authorized call, which makes it an availability
 dependency and the reason the proxied surface is kept deliberately small.
 
-Callers reach the public origin (`PUBLIC_ORIGIN`, eventually `https://claimable.neon.tech`). Neon
+Callers reach the public origin (`PUBLIC_ORIGIN`, `https://claimable.neon.tech`). Neon
 Functions cannot bind a custom hostname yet, so a Vercel Hono app in root `server.ts` forwards
 every path — including `/.well-known` — to the Function. The Function refuses every request that
 does not carry `x-claimable-proxy-secret`. Localhost with a blank `PROXY_SHARED_SECRET` skips that

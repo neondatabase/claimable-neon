@@ -19,7 +19,7 @@ target shape.
 | auth.md, llms.txt, and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
-| Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts` |
+| Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
@@ -29,7 +29,7 @@ target shape.
 ## Not yet implemented
 
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
-- `claimable.neon.tech` HTTPS and `PUBLIC_ORIGIN` cutover. DNS CNAME is live (`databricks-eng/neon-cloudflare` [PR 196](https://github.com/databricks-eng/neon-cloudflare/pull/196) → `2676d711164b300e.vercel-dns-013.com`; Vercel `misconfigured=false`). The hostname is not presenting a TLS certificate yet. Public origin is still `https://claimable-neon.vercel.app`. Function compute is Neon Prod project `soft-morning-58679842` (`org-muddy-smoke-84491814`). Unclaimed projects still provision into the smoke org. A dedicated service user is still missing.
+- Dedicated Neon service user whose only organization is the unclaimed-projects org. `NEON_API_KEY` is still a personal user key (`andre.timo.landgraf@gmail.com`). Unclaimed projects provision into the smoke org `org-old-flower-82714815`. Do not use an org API key.
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
 - Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
