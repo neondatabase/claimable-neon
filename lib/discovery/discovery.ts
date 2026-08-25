@@ -7,15 +7,11 @@ export type DiscoveryOrigins = {
 	issuer: string;
 };
 
-/** Skill file lives at the issuer host root, not under a path issuer suffix. */
+/** Path issuers share the host-root skill file. */
 export const skillUrlForIssuer = (issuer: string): string =>
 	`${new URL(issuer).origin}/auth.md`;
 
-/**
- * RFC 8414 path insertion: issuer `https://example.com/claimable` is published at
- * `https://example.com/.well-known/oauth-authorization-server/claimable`. An issuer
- * with no path uses the well-known document at the host root.
- */
+/** RFC 8414 inserts an issuer path after the host-root well-known path. */
 export const authorizationServerMetadataUrl = (issuer: string): string => {
 	const url = new URL(issuer);
 	const path = url.pathname.replace(/\/+$/, "").replace(/^\//, "");
@@ -70,7 +66,7 @@ Agents start here, then read auth.md. Do not guess the API.
 `;
 };
 
-/** Localhost fixture. Production serves https://neon.com/auth.md and 301s this path. */
+/** Kept for localhost; deployed origins redirect to https://neon.com/auth.md. */
 export const authMarkdown = (origin: string): string => {
 	const base = originWithoutTrailingSlash(origin);
 	return `# Claimable Neon for agents

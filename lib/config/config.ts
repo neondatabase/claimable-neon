@@ -109,7 +109,7 @@ export type Config = {
 	/** The `resource` value tokens are bound to. Always the origin with a trailing slash. */
 	audience: string;
 	issuer: string;
-	/** Issuers accepted at verification. Includes PUBLIC_ORIGIN so pre-switch assertions still exchange. */
+	/** Keeps assertions minted before the issuer switch exchangeable. */
 	acceptedIssuers: readonly string[];
 	skillUrl: string;
 	authorizationServerMetadataUrl: string;
