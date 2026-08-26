@@ -18,6 +18,7 @@ describe("analytics configuration", () => {
 		PUBLIC_ORIGIN: "https://claimable.neon.tech",
 		DATABASE_URL: "postgresql://service:secret@example.test/claimable",
 		NEON_API_KEY: "napi_service_user",
+		NEON_ORG_API_KEY: "napi_org",
 		NEON_ORG_ID: "org-test",
 		TOKEN_SIGNING_KEY: '{"kty":"OKP"}',
 		KEY_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),

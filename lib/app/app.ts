@@ -111,6 +111,7 @@ export type AppDependencies = {
 	sql: Sql;
 	signingKey: SigningKey;
 	orgClient: NeonClient;
+	personalClient: NeonClient;
 	analytics: Analytics;
 };
 
@@ -780,7 +781,7 @@ export const createApp = (dependencies: AppDependencies) => {
 			);
 			projectId = project.projectId;
 			const mintedKey = await mintProjectKey(
-				dependencies.orgClient,
+				dependencies.personalClient,
 				dependencies.config,
 				project.projectId,
 			);

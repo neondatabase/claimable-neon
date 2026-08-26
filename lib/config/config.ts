@@ -37,12 +37,11 @@ const schema = z.object({
 	/** Postgres for this service's own state. Injected by Neon Functions for its branch. */
 	DATABASE_URL: z.string().min(1),
 
-	/**
-	 * A personal Neon API key for a dedicated service user in the org that owns unclaimed
-	 * projects. Neon's project-scoped API-key endpoint does not accept organization API keys.
-	 */
+	/** The project-scoped key endpoint rejects organization keys. */
 	NEON_API_KEY: z.string().min(1),
 	NEON_API_KEY_KIND: z.enum(["service_user", "user_local"]).default("service_user"),
+	/** Separate from NEON_API_KEY so unclaimed projects are not attached to a person. */
+	NEON_ORG_API_KEY: z.string().min(1),
 	NEON_ORG_ID: z.string().min(1),
 	NEON_API_HOST: z.string().url().default("https://console.neon.tech/api/v2"),
 	NEON_REGION_ID: z.string().min(1).default("aws-us-east-2"),
@@ -117,6 +116,7 @@ export type Config = {
 	databaseUrl: string;
 	neonApiKey: string;
 	neonApiKeyKind: "service_user" | "user_local";
+	neonOrgApiKey: string;
 	neonOrgId: string;
 	neonApiHost: string;
 	neonRegionId: string;
@@ -164,6 +164,12 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 			"NEON_API_KEY_KIND=user_local is allowed only with a localhost PUBLIC_ORIGIN.",
 		);
 	}
+	if (value.NEON_ORG_API_KEY === value.NEON_API_KEY) {
+		throw new ServiceError(
+			"internal_error",
+			"NEON_ORG_API_KEY must be an organization API key, distinct from NEON_API_KEY.",
+		);
+	}
 	if (!localhost && value.PROXY_SHARED_SECRET.length === 0) {
 		throw new ServiceError(
 			"internal_error",
@@ -182,6 +188,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 		databaseUrl: value.DATABASE_URL,
 		neonApiKey: value.NEON_API_KEY,
 		neonApiKeyKind: value.NEON_API_KEY_KIND,
+		neonOrgApiKey: value.NEON_ORG_API_KEY,
 		neonOrgId: value.NEON_ORG_ID,
 		neonApiHost: value.NEON_API_HOST.replace(/\/+$/, ""),
 		neonRegionId: value.NEON_REGION_ID,

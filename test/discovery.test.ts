@@ -103,9 +103,7 @@ describe("auth.md discovery", () => {
 		expect(markdown).not.toContain(
 			"https://neon.com/docs/reference/claimable-postgres.md",
 		);
-		expect(markdown).not.toContain(
-			"https://neon.com/docs/reference/claimable-neon.md",
-		);
+		expect(markdown).not.toContain("https://neon.com/docs/reference/claimable-neon.md");
 		expect(markdown).toContain(`${origin}/llms.txt`);
 		expect(markdown).toContain(`${origin}/auth.md`);
 		expect(markdown).toContain("npm i -g neon@latest");

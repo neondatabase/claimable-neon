@@ -153,6 +153,40 @@ describe("local Claimable Neon service", () => {
 			);
 			expect(credentials.project_id).toBe(projectId);
 
+			const personalApiKey = process.env.NEON_API_KEY;
+			if (!personalApiKey) {
+				throw new Error("NEON_API_KEY is required to assert project membership.");
+			}
+			// Org keys 404 here ("user-backed requests"); this is the key that would receive the avatar grant.
+			const membersResponse = await fetch(
+				`https://console.neon.tech/api/v2/projects/${projectId}/members`,
+				{
+					headers: {
+						authorization: `Bearer ${personalApiKey}`,
+						accept: "application/json",
+					},
+				},
+			);
+			if (!membersResponse.ok) {
+				throw new Error(
+					`Project members lookup failed with HTTP ${membersResponse.status}: ${await membersResponse.text()}`,
+				);
+			}
+			const membersBody = z
+				.object({
+					project_members: z.array(
+						z.object({
+							explicit_project_permission: z.string().nullable().optional(),
+						}),
+					),
+				})
+				.parse(await membersResponse.json());
+			expect(
+				membersBody.project_members.every(
+					(member) => member.explicit_project_permission == null,
+				),
+			).toBe(true);
+
 			const sql = postgres(credentials.database_url, {
 				connect_timeout: 30,
 				prepare: false,

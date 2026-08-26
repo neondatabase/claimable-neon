@@ -14,6 +14,7 @@ export default defineConfig({
 					ISSUER: process.env.ISSUER ?? "",
 					NEON_API_KEY: process.env.NEON_API_KEY ?? "",
 					NEON_API_KEY_KIND: "service_user",
+					NEON_ORG_API_KEY: process.env.NEON_ORG_API_KEY ?? "",
 					NEON_ORG_ID: process.env.NEON_ORG_ID ?? "",
 					TOKEN_SIGNING_KEY: process.env.TOKEN_SIGNING_KEY ?? "",
 					KEY_ENCRYPTION_KEY: process.env.KEY_ENCRYPTION_KEY ?? "",

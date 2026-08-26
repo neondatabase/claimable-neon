@@ -6,6 +6,7 @@ const validEnvironment = {
 	PUBLIC_ORIGIN: "https://claimable.neon.tech",
 	DATABASE_URL: "postgresql://service:secret@example.test/claimable",
 	NEON_API_KEY: "napi_service_user",
+	NEON_ORG_API_KEY: "napi_org",
 	NEON_ORG_ID: "org-test",
 	TOKEN_SIGNING_KEY: '{"kty":"OKP"}',
 	KEY_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),
@@ -49,6 +50,20 @@ describe("service configuration", () => {
 		});
 
 		expect(config.proxySharedSecret).toBe("");
+	});
+
+	it("refuses when the organization key is the same secret as the personal key", () => {
+		expect(() =>
+			loadConfig({
+				...validEnvironment,
+				NEON_ORG_API_KEY: validEnvironment.NEON_API_KEY,
+			}),
+		).toThrow("distinct from NEON_API_KEY");
+	});
+
+	it("requires NEON_ORG_API_KEY", () => {
+		const { NEON_ORG_API_KEY: _, ...withoutOrgKey } = validEnvironment;
+		expect(() => loadConfig(withoutOrgKey)).toThrow("NEON_ORG_API_KEY");
 	});
 
 	it("requires a proxy secret on a deployed origin", () => {

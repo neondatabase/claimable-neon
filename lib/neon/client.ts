@@ -1,7 +1,4 @@
 /**
- * The Neon Management API client used *internally* — with the dedicated service-user key at
- * provisioning time, and with a project-scoped key when acting for a caller.
- *
  * Deliberately hand-rolled rather than generated: this service must only ever reach a small,
  * enumerated set of endpoints, and a generated client exposing the whole API would make the
  * boundary a matter of discipline instead of a matter of what exists.

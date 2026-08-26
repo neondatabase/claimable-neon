@@ -99,7 +99,7 @@ bun run test
 ```
 
 Create `.env.local` from the checked-in template. Generate the signing and encryption keys, then
-fill in the two remaining secrets:
+fill in the remaining secrets:
 
 ```bash
 cp .env.example .env.local
@@ -108,7 +108,9 @@ bun run secrets:generate >> .env.local
 
 - `DATABASE_URL` is a dedicated database for this service's state.
 - `NEON_API_KEY` is a newly created, revocable personal API key. Neon's endpoint for minting
-  project-scoped keys rejects organization API keys.
+  project-scoped keys rejects organization API keys. Use it only for that mint.
+- `NEON_ORG_API_KEY` is an organization API key for the same `NEON_ORG_ID`. Create, delete,
+  transfer, and revoke go through it so unclaimed projects are not attached to a person.
 - Keep `NEON_API_KEY_KIND=user_local`. The process refuses this key mode on a non-localhost origin.
 - Leave `PROXY_SHARED_SECRET` blank locally. A non-localhost `PUBLIC_ORIGIN` refuses to boot without it.
 - Keep `NEON_ORG_ID=org-old-flower-82714815`, the documented throwaway Neon organization.
@@ -139,7 +141,7 @@ source; create one dedicated Claimable Neon E2E recipient organization:
 
 - `NEON_ORG_ID`: source organization that holds unclaimed projects
 - `CLAIMABLE_E2E_RECIPIENT_ORG_ID`: different destination organization
-- `CLAIMABLE_E2E_SOURCE_API_KEY`: optional source cleanup override; defaults to `NEON_API_KEY`
+- `CLAIMABLE_E2E_SOURCE_API_KEY`: optional source cleanup override; defaults to `NEON_ORG_API_KEY`, then `NEON_API_KEY`
 - `CLAIMABLE_E2E_RECIPIENT_API_KEY`: optional recipient override; defaults to `NEON_API_KEY`
 - `CLAIMABLE_E2E_WEBSITE_ORIGIN`: local website origin, normally `http://localhost:3000`
 

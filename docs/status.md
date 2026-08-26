@@ -29,7 +29,7 @@ target shape.
 ## Not yet implemented
 
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
-- Dedicated Neon service user whose only organization is the unclaimed-projects org. Stand-in: account API key for `andre.landgraf@databricks.com` (`claimable-fn-20260825`). Unclaimed projects provision into `org-black-art-26279250` (Neon.new Unclaimed Projects, `enterprise`, shared with neon.new). Function compute is Neon Prod `soft-morning-58679842`. Do not use an org API key. Function deployment 10. Andre is admin on the holding org.
+- Dedicated Neon service user whose only organization is the unclaimed-projects org. Mint still uses account API key `claimable-fn-20260825` for `andre.landgraf@databricks.com`. Create, delete, transfer, and revoke use organization API key `claimable-org-20260826` on `org-black-art-26279250`. Minting a project-scoped key still records `created_by` on that key row; it does not set `explicit_project_permission` on the project. Function compute is Neon Prod `soft-morning-58679842`. Andre is admin on the holding org.
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
 - Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.

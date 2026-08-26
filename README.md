@@ -176,7 +176,7 @@ For local service testing:
 ```bash
 cp .env.example .env.local
 bun run secrets:generate >> .env.local
-# Fill DATABASE_URL and NEON_API_KEY in .env.local.
+# Fill DATABASE_URL, NEON_API_KEY, and NEON_ORG_API_KEY in .env.local.
 bun run migrate
 bun run dev
 ```
@@ -199,8 +199,9 @@ All required; the process refuses to start without them.
 |---|---|
 | `PUBLIC_ORIGIN` | Public API origin. Token `aud` / `resource`, PRM, JWKS, and issue hosts. |
 | `DATABASE_URL` | This service's own state. Injected by Neon Functions. |
-| `NEON_API_KEY` | Personal API key for a dedicated service user in the org holding unclaimed projects. Neon rejects organization keys when minting project-scoped keys. |
+| `NEON_API_KEY` | Personal API key used only to mint project-scoped keys. Neon rejects organization keys on that endpoint. |
 | `NEON_API_KEY_KIND` | `service_user` in deployment. `user_local` is accepted only when `PUBLIC_ORIGIN` uses localhost. |
+| `NEON_ORG_API_KEY` | Organization API key for create, delete, transfer, and revoke. Distinct from `NEON_API_KEY` so unclaimed projects are not attached to a person. |
 | `NEON_ORG_ID` | That organization. |
 | `TOKEN_SIGNING_KEY` | Ed25519 private JWK. |
 | `KEY_ENCRYPTION_KEY` | 32 bytes base64; encrypts per-project Neon keys at rest. |

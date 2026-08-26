@@ -10,7 +10,10 @@ const websiteOrigin = process.env.CLAIMABLE_E2E_WEBSITE_ORIGIN?.replace(/\/+$/, 
 const recipientApiKey =
 	process.env.CLAIMABLE_E2E_RECIPIENT_API_KEY || process.env.NEON_API_KEY;
 const recipientOrgId = process.env.CLAIMABLE_E2E_RECIPIENT_ORG_ID;
-const sourceApiKey = process.env.CLAIMABLE_E2E_SOURCE_API_KEY || process.env.NEON_API_KEY;
+const sourceApiKey =
+	process.env.CLAIMABLE_E2E_SOURCE_API_KEY ||
+	process.env.NEON_ORG_API_KEY ||
+	process.env.NEON_API_KEY;
 const neonApiBaseUrl = (
 	process.env.CLAIMABLE_E2E_NEON_API_BASE_URL ?? "https://console.neon.tech/api/v2"
 ).replace(/\/+$/, "");
