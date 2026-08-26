@@ -24,12 +24,12 @@ target shape.
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
-| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; live claim of `lively-art-05183563` into free Testing `org-old-flower-82714815` (204) after the holding org was `free` |
+| Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; live claim of `lively-art-05183563` into free Testing `org-old-flower-82714815` (204) while the holding org was `free`. After `org-icy-firefly-99910178` was set to `enterprise`, claim of `crimson-frost-45480518` into the same dest returned 406 |
 
 ## Not yet implemented
 
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
-- Dedicated Neon service user whose only organization is the unclaimed-projects org. Stand-in: account API key for `andre.landgraf@databricks.com` (`claimable-fn-20260825`). Unclaimed projects provision into `org-icy-firefly-99910178` (🚨 Prod Claimable Neon Projects, `free`). Function compute is Neon Prod `soft-morning-58679842`. Do not use an org API key. Sharing neon.new `org-black-art-26279250` (enterprise, 20000+ projects) is blocked: the Function user is member, not admin.
+- Dedicated Neon service user whose only organization is the unclaimed-projects org. Stand-in: account API key for `andre.landgraf@databricks.com` (`claimable-fn-20260825`). Unclaimed projects provision into `org-icy-firefly-99910178` (🚨 Prod Claimable Neon Projects, `enterprise`). Function compute is Neon Prod `soft-morning-58679842`. Do not use an org API key. Claim into a free dest 406s from this org. Sharing neon.new `org-black-art-26279250` is blocked: the Function user is member, not admin.
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
 - Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
