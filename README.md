@@ -96,8 +96,12 @@ POST /v1/agent/identity
 
 Registration does not create a transfer request or mint a `user_code`. That is deliberate: a
 transfer request created at provisioning time would remain open for the project's lifetime.
-`POST /v1/projects/{id}/claim` creates a short-lived human code. Redeeming that code removes
-pre-claim access, creates the transfer request, and redirects the human to Neon.
+`POST /v1/projects/{id}/claim` creates a short-lived human code (`expires_in`, 15 minutes today).
+POST again if that code expires: an unused code is cancelled and replaced. After the human
+continues to Neon, a replacement is minted only if that transfer window expires and the project
+is still unclaimed. Redeeming a code removes pre-claim access, creates the transfer request, and
+redirects the human to Neon. The unclaimed project itself expires at `project.expires_at`
+(72 hours today).
 
 ```http
 POST /v1/oauth2/token

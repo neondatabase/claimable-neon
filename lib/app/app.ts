@@ -10,6 +10,7 @@ import {
 } from "../capabilities/capabilities.ts";
 import { hasScope, scopesForCapabilities } from "../capabilities/scopes.ts";
 import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
+import { claimCodeIssuance } from "../claims/issuance.ts";
 import { prepareClaimTransfer, reconcileAcceptedClaim } from "../claims/reconcile.ts";
 import { type Config, tokenVerifyExpected } from "../config/config.ts";
 import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts";
@@ -332,6 +333,32 @@ const authenticate = async (
 	return { registration, tokenScopes: claims.scopes };
 };
 
+const authenticateClaimCode = async (
+	authorization: string | undefined,
+	dependencies: AppDependencies,
+): Promise<AuthenticatedRegistration> => {
+	const token = bearerToken(authorization);
+	const claims = await verifyAccessToken(
+		dependencies.signingKey,
+		token,
+		tokenVerifyExpected(dependencies.config),
+	);
+	if (await isTokenRevoked(dependencies.sql, claims.jti)) {
+		throw new ServiceError("unauthorized", "This access token was revoked.");
+	}
+	const registration = await requireUsableRegistration(
+		dependencies.sql,
+		claims.registration_id,
+	);
+	if (registration.neonProjectId !== claims.project_id) {
+		throw new ServiceError(
+			"unauthorized",
+			"Access token project does not match its registration.",
+		);
+	}
+	return { registration, tokenScopes: claims.scopes };
+};
+
 const authenticateClaimStatus = async (
 	authorization: string | undefined,
 	dependencies: AppDependencies,
@@ -380,6 +407,28 @@ const withAuthenticatedRegistrationLock = async <Result>(
 			const lockedDependencies = { ...dependencies, sql: lockedSql };
 			return operation(
 				await authenticate(authorization, lockedDependencies),
+				lockedDependencies,
+			);
+		},
+	);
+};
+
+const withClaimCodeLock = async <Result>(
+	authorization: string | undefined,
+	dependencies: AppDependencies,
+	operation: (
+		authenticated: AuthenticatedRegistration,
+		lockedDependencies: AppDependencies,
+	) => Promise<Result>,
+): Promise<Result> => {
+	const initial = await authenticateClaimCode(authorization, dependencies);
+	return withRegistrationLock(
+		dependencies.sql,
+		initial.registration.id,
+		async (lockedSql) => {
+			const lockedDependencies = { ...dependencies, sql: lockedSql };
+			return operation(
+				await authenticateClaimCode(authorization, lockedDependencies),
 				lockedDependencies,
 			);
 		},
@@ -499,17 +548,44 @@ const createClaimCode = async (
 	dependencies: AppDependencies,
 	registration: Registration,
 ) => {
-	if (registration.issuanceFrozen) {
+	const previous = await latestClaimAttempt(dependencies.sql, registration.id);
+	const decision = claimCodeIssuance({
+		issuanceFrozen: registration.issuanceFrozen,
+		registrationClaimState: registration.claimState,
+		latest: previous,
+		now: new Date(),
+	});
+	if (decision.action === "refuse") {
 		throw new ServiceError(
-			"claim_in_progress",
-			"A claim ceremony is already in progress for this project.",
+			decision.error,
+			decision.error === "project_claimed"
+				? "This project has been claimed. Use your own Neon credentials — run `neon auth`."
+				: "A claim ceremony is already in progress for this project.",
 			{ claimState: registration.claimState },
 		);
 	}
-	const previous = await latestClaimAttempt(dependencies.sql, registration.id);
-	if (previous?.state === "pending") {
+	if (registration.issuanceFrozen) {
+		const ownerOrg = await getProjectOwnerOrg(
+			dependencies.orgClient,
+			registration.neonProjectId,
+		);
+		if (ownerOrg !== dependencies.config.neonOrgId) {
+			throw new ServiceError(
+				"project_claimed",
+				"This project has been claimed. Use your own Neon credentials — run `neon auth`.",
+				{ claimState: registration.claimState },
+			);
+		}
+	}
+	if (decision.expireAttemptId !== null) {
 		await setClaimAttemptState(dependencies.sql, {
-			attemptId: previous.id,
+			attemptId: decision.expireAttemptId,
+			state: "expired",
+		});
+	}
+	if (decision.cancelAttemptId !== null) {
+		await setClaimAttemptState(dependencies.sql, {
+			attemptId: decision.cancelAttemptId,
 			state: "cancelled",
 		});
 	}
@@ -918,9 +994,8 @@ export const createApp = (dependencies: AppDependencies) => {
 		// Starting a claim freezes project mutations, not observation of the ceremony itself.
 		// A client does not retain access tokens indefinitely, so refusing every later exchange
 		// would make `GET .../claim` unreachable as soon as its first token expired. During the
-		// ceremony, issue an empty-scope token. The claim-status route explicitly admits a
-		// frozen registration; every other route rejects that registration before its scope
-		// check, so the token can do exactly one thing without widening the public scope set.
+		// ceremony, issue an empty-scope token so claim status and expired-window replacement
+		// remain reachable without restoring project access.
 		const accessScopes = registration.issuanceFrozen ? [] : registration.scopes;
 		const access = await mintAccessToken(dependencies.signingKey, {
 			issuer: dependencies.config.issuer,
@@ -987,7 +1062,7 @@ export const createApp = (dependencies: AppDependencies) => {
 	});
 
 	app.post("/v1/projects/:projectId/claim", async (context) => {
-		return withAuthenticatedRegistrationLock(
+		return withClaimCodeLock(
 			context.req.header("authorization"),
 			dependencies,
 			async (authenticated, lockedDependencies) => {

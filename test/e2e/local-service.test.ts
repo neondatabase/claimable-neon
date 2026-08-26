@@ -260,6 +260,22 @@ describe("local Claimable Neon service", () => {
 			expect(claimCode.verification_uri_complete).toContain(
 				encodeURIComponent(claimCode.user_code),
 			);
+			const replacementClaim = claimCodeResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+						method: "POST",
+						headers: authorization,
+					}),
+				),
+			);
+			expect(replacementClaim.user_code).not.toBe(claimCode.user_code);
+			const cancelledCode = await fetch(`${baseUrl}/claim`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ user_code: claimCode.user_code }),
+				redirect: "manual",
+			});
+			expect(cancelledCode.ok).toBe(false);
 			const claimStatusToken = await exchange(assertion);
 			const claimStatus = claimStatusResponse.parse(
 				await json(
@@ -319,6 +335,136 @@ describe("local Claimable Neon service", () => {
 			headers: { authorization: `Bearer ${cleanupToken}` },
 		});
 		if (deleted.status !== 204) {
+			throw new Error(
+				`Cleanup failed with HTTP ${deleted.status}: ${await deleted.text()}`,
+			);
+		}
+		if (testFailure) {
+			throw testFailure;
+		}
+	});
+
+	it("mints a replacement claim code after the transfer window expires", async () => {
+		const databaseUrl = process.env.DATABASE_URL;
+		if (!databaseUrl) {
+			throw new Error("DATABASE_URL is required to expire a claim attempt.");
+		}
+		const orgApiKey = process.env.NEON_ORG_API_KEY;
+		if (!orgApiKey) {
+			throw new Error("NEON_ORG_API_KEY is required to delete a frozen project.");
+		}
+
+		const registrationBody = await json(
+			await fetch(`${baseUrl}/v1/agent/identity`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					type: "anonymous",
+					capabilities: ["postgres"],
+					source: "local_e2e_claim_reissue",
+				}),
+			}),
+		);
+		const registration = registrationResponse.parse(registrationBody);
+		const projectId = registration.project.id;
+		const assertion = registration.identity_assertion;
+		let testFailure: unknown;
+
+		try {
+			const accessToken = await exchange(assertion);
+			const authorization = { authorization: `Bearer ${accessToken}` };
+			const firstClaim = claimCodeResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+						method: "POST",
+						headers: authorization,
+					}),
+				),
+			);
+			const browserClaim = await fetch(`${baseUrl}/claim`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ user_code: firstClaim.user_code }),
+				redirect: "manual",
+			});
+			expect(browserClaim.status).toBe(303);
+
+			const revokedToken = await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+				method: "POST",
+				headers: authorization,
+			});
+			expect(revokedToken.status).toBe(401);
+
+			const statusToken = await exchange(assertion);
+			const statusAuthorization = { authorization: `Bearer ${statusToken}` };
+			const liveCeremony = await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+				method: "POST",
+				headers: statusAuthorization,
+			});
+			expect(liveCeremony.status).toBe(409);
+			expect(errorResponse.parse(await liveCeremony.json()).error.code).toBe(
+				"claim_in_progress",
+			);
+
+			const sql = postgres(databaseUrl, { prepare: false });
+			try {
+				await sql`
+					update claim_attempts
+					set expires_at = now() - interval '1 second'
+					where state = 'pending'
+						and registration_id = (
+							select id from registrations where neon_project_id = ${projectId}
+						)`;
+			} finally {
+				await sql.end({ timeout: 5 });
+			}
+
+			const reissued = claimCodeResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+						method: "POST",
+						headers: statusAuthorization,
+					}),
+				),
+			);
+			expect(reissued.user_code).not.toBe(firstClaim.user_code);
+
+			const expiredCode = await fetch(`${baseUrl}/claim`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ user_code: firstClaim.user_code }),
+				redirect: "manual",
+			});
+			expect(expiredCode.ok).toBe(false);
+
+			const replacementBrowser = await fetch(`${baseUrl}/claim`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ user_code: reissued.user_code }),
+				redirect: "manual",
+			});
+			expect(replacementBrowser.status).toBe(303);
+			const location = replacementBrowser.headers.get("location");
+			if (!location) {
+				throw new Error("Replacement claim redirect omitted Location.");
+			}
+			expect(new URL(location).searchParams.get("p")).toBe(projectId);
+			expect(new URL(location).searchParams.get("tr")).toBeTruthy();
+		} catch (error) {
+			testFailure = error;
+		}
+
+		const deleted = await fetch(
+			`https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}`,
+			{
+				method: "DELETE",
+				headers: {
+					authorization: `Bearer ${orgApiKey}`,
+					accept: "application/json",
+				},
+			},
+		);
+		if (deleted.status !== 200 && deleted.status !== 204 && deleted.status !== 404) {
 			throw new Error(
 				`Cleanup failed with HTTP ${deleted.status}: ${await deleted.text()}`,
 			);

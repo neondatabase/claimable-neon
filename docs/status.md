@@ -18,6 +18,7 @@ target shape.
 | Configuration validation and localhost-only user-key guard | `lib/config/config.ts` | `test/config.test.ts` |
 | auth.md, llms.txt, and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
+| Claim-code re-issue: unused codes are replaced; after browser redemption a new code is minted only once the transfer window expires and the project is still in the holding org | `lib/claims/issuance.ts`, `lib/app/app.ts` | `test/claim-issuance.test.ts`, `test/e2e/local-service.test.ts` |
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |

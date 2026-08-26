@@ -123,6 +123,13 @@ describe("auth.md discovery", () => {
 		expect(markdown).toContain("reconciled");
 		expect(markdown).toContain("database password");
 		expect(markdown).toContain("stay enabled and transfer with the project");
+		expect(markdown).toContain("project.expires_at");
+		expect(markdown).toContain("expires_in");
+		expect(markdown).toContain("72 hours");
+		expect(markdown).toContain("900 today");
+		expect(markdown).toContain("neon deploy");
+		expect(markdown).toContain("auth: true");
+		expect(markdown).toContain('authProvider: "external"');
 		expect(markdown).not.toContain("deletes the pre-claim Managed Better Auth");
 	});
 });
