@@ -153,6 +153,30 @@ fails the test. After a failed run, verify that no project with the `claimable-l
 remains in either test organization before retrying. Do not add mocks for Neon behavior; use pure
 tests for the functional core and real infrastructure for I/O behavior.
 
+## Production Function
+
+The live Function is project `soft-morning-58679842`, branch `main`, slug `claimable`,
+profile `dbx`.
+
+Ship code without touching env:
+
+```bash
+neon functions deploy claimable \
+  --profile dbx \
+  --src src/server.ts \
+  --project-id soft-morning-58679842 \
+  --branch main \
+  --wait
+```
+
+Omitting `--env` keeps the Function's existing environment. `neon functions deploy --env KEY=VALUE`
+merges that key.
+
+`neon deploy` (config apply) sends the `neon.ts` `env` object as a **replacement** map.
+`process.env.X ?? ""` becomes empty strings when the shell has no secrets, the Function fails
+to load, and `https://claimable.neon.tech` returns `function_load_failed`. Do not run
+`neon deploy` against this project unless `--env` points at a complete production env file.
+
 ## Before committing
 
 Pre-launch: commit on `main` and push. Do not open a pull request unless asked. See AGENTS.md.

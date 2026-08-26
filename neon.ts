@@ -8,8 +8,7 @@ export default defineConfig({
 				source: "./src/server.ts",
 				env: {
 					// `neon env pull` evaluates this file before the local secrets exist.
-					// The service validates every value at boot, so a deploy with an empty value
-					// still fails loudly rather than running with partial configuration.
+					// `neon deploy` replaces Function env with this map, including empty strings.
 					PUBLIC_ORIGIN: process.env.PUBLIC_ORIGIN ?? "",
 					ISSUER: process.env.ISSUER ?? "",
 					NEON_API_KEY: process.env.NEON_API_KEY ?? "",
