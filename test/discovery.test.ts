@@ -130,6 +130,10 @@ describe("auth.md discovery", () => {
 		expect(markdown).toContain("neon deploy");
 		expect(markdown).toContain("auth: true");
 		expect(markdown).toContain('authProvider: "external"');
+		expect(markdown).toContain("unclaimed project");
+		expect(markdown).not.toContain(
+			"You cannot add those services on the unclaimed project",
+		);
 		expect(markdown).not.toContain("deletes the pre-claim Managed Better Auth");
 	});
 });

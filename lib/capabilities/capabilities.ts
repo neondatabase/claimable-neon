@@ -2,8 +2,9 @@
  * The capability vocabulary, and what a pre-claim project is allowed to have.
  *
  * A capability is what a caller asks for ("I want object storage"). A scope is what an issued
- * token may do ("storage.write"). They are deliberately separate: capabilities are provisioned
- * once at creation, scopes are checked on every request.
+ * token may do ("storage.write"). They are deliberately separate: Auth and Data API are off at
+ * create unless requested, and can be enabled later through the allowlisted POSTs; scopes are
+ * checked on every request.
  */
 
 /** Everything a caller may ask for. Ordering is the order we report status in. */
@@ -48,9 +49,8 @@ export type CapabilityDecision =
 export const ALWAYS_GRANTED: readonly Capability[] = ["postgres"];
 
 /**
- * Grantable pre-claim, but only when the caller asks. Default-off is deliberate: provisioning
- * Neon Auth has a side effect that cannot be undone by deleting the project (see
- * `docs/neon-auth.md`), so it must never happen because a default said so.
+ * Grantable pre-claim, but only when the caller asks — at create, or later via `neon deploy`.
+ * Default-off at create is deliberate: enabling Auth sends mail through Neon's shared SMTP.
  */
 export const GRANTABLE_ON_REQUEST: readonly Capability[] = ["data_api", "auth"];
 

@@ -74,6 +74,20 @@ const dataApiCredential = z.object({
 	url: z.string().url(),
 });
 
+const authCredentialPublic = z.object({
+	jwks_url: z.string().url(),
+	base_url: z.string().url().optional(),
+});
+
+export const parseAuthServiceCredential = (data: unknown) =>
+	parseUpstream(authCredential, data, "enabling Managed Better Auth");
+
+export const parseDataApiServiceCredential = (data: unknown) =>
+	parseUpstream(dataApiCredential, data, "enabling the Neon Data API");
+
+export const parseAuthServiceCredentialPublic = (data: unknown) =>
+	parseUpstream(authCredentialPublic, data, "reading Managed Better Auth");
+
 const transferRequestResponse = z.object({
 	id: z.string().min(1),
 	project_id: z.string().min(1),
@@ -277,11 +291,7 @@ export const configureCapabilities = async (
 			auth_provider: "better_auth",
 			database_name: project.databaseName,
 		});
-		credentials.auth = parseUpstream(
-			authCredential,
-			response.data,
-			"enabling Managed Better Auth",
-		);
+		credentials.auth = parseAuthServiceCredential(response.data);
 	}
 
 	if (capabilities.includes("data_api")) {
@@ -289,11 +299,7 @@ export const configureCapabilities = async (
 			`${projectPath}/data-api/${pathSegment(project.databaseName)}`,
 			capabilities.includes("auth") ? { auth_provider: "neon_auth" } : {},
 		);
-		credentials.data_api = parseUpstream(
-			dataApiCredential,
-			response.data,
-			"enabling the Neon Data API",
-		);
+		credentials.data_api = parseDataApiServiceCredential(response.data);
 	}
 
 	return credentials;

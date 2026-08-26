@@ -8,7 +8,12 @@ import {
 	decideCapabilities,
 	grantedCapabilities,
 } from "../capabilities/capabilities.ts";
-import { hasScope, scopesForCapabilities } from "../capabilities/scopes.ts";
+import {
+	hasScope,
+	scopesForCapabilities,
+	withGrantableConfigureScopes,
+	withGrantedCapability,
+} from "../capabilities/scopes.ts";
 import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
 import { claimCodeIssuance } from "../claims/issuance.ts";
 import { prepareClaimTransfer, reconcileAcceptedClaim } from "../claims/reconcile.ts";
@@ -22,7 +27,7 @@ import {
 } from "../discovery/discovery.ts";
 import { PROXY_SECRET_HEADER, requireProxySharedSecret } from "../edge/secret.ts";
 import { ServiceError, isServiceError, toServiceError } from "../errors/errors.ts";
-import { NeonClient } from "../neon/client.ts";
+import { NeonClient, type NeonResponse } from "../neon/client.ts";
 import {
 	configureCapabilities,
 	createClaimableProject,
@@ -30,9 +35,18 @@ import {
 	deleteClaimableProject,
 	getProjectOwnerOrg,
 	mintProjectKey,
+	parseAuthServiceCredential,
+	parseAuthServiceCredentialPublic,
+	parseDataApiServiceCredential,
 	revokeProjectKey,
 } from "../neon/provisioning.ts";
-import { type Operation, matchOperation, projectResponse } from "../proxy/allowlist.ts";
+import {
+	type MatchedOperation,
+	type Operation,
+	matchOperation,
+	projectResponse,
+	shouldRelayUpstreamStatus,
+} from "../proxy/allowlist.ts";
 import {
 	type Registration,
 	type Sql,
@@ -61,6 +75,7 @@ import {
 	startClaimTransfer,
 	storeProjectKey,
 	storeServiceCredential,
+	updateRegistrationScopes,
 	withRegistrationLock,
 } from "../store/store.ts";
 import { publicJwks } from "../tokens/keys.ts";
@@ -721,6 +736,115 @@ const proxyRequestBody = async (
 	return parsed.data;
 };
 
+const relayedUpstreamResponse = (error: ServiceError): Response => {
+	const status = error.options.upstreamStatus;
+	if (status === undefined) throw error;
+	const data = error.options.details;
+	return new Response(data === undefined ? null : JSON.stringify(data), {
+		status,
+		headers: {
+			"content-type": "application/json",
+			...(error.options.upstreamRequestId
+				? { "x-upstream-request-id": error.options.upstreamRequestId }
+				: {}),
+		},
+	});
+};
+
+const requestProxiedOperation = async (
+	client: NeonClient,
+	dependencies: AppDependencies,
+	registration: Registration,
+	matched: MatchedOperation,
+	method: string,
+	path: string,
+	body: unknown,
+): Promise<NeonResponse | Response> => {
+	try {
+		const response = await client.request(method, path, body);
+		if (response.status >= 200 && response.status < 300) {
+			await persistEnabledService(
+				dependencies,
+				registration,
+				matched,
+				client,
+				response.data,
+			);
+		}
+		return response;
+	} catch (error) {
+		if (
+			isServiceError(error) &&
+			error.code === "upstream_error" &&
+			error.options.upstreamStatus !== undefined &&
+			shouldRelayUpstreamStatus(matched.operation, error.options.upstreamStatus)
+		) {
+			if (error.options.upstreamStatus === 409) {
+				await persistEnabledService(dependencies, registration, matched, client);
+			}
+			return relayedUpstreamResponse(error);
+		}
+		throw error;
+	}
+};
+
+const persistEnabledService = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+	matched: MatchedOperation,
+	client: NeonClient,
+	data?: unknown,
+): Promise<void> => {
+	const capability = matched.operation.capability;
+	if (capability !== "auth" && capability !== "data_api") return;
+	if (matched.operation.method !== "POST") return;
+
+	let credential: unknown;
+	if (data !== undefined) {
+		credential =
+			capability === "auth"
+				? parseAuthServiceCredential(data)
+				: parseDataApiServiceCredential(data);
+	} else {
+		const stored = await getServiceCredentials(dependencies.sql, registration.id);
+		// GET /auth returns the public fields only. A 409 retry must not replace a create-time
+		// payload with that subset.
+		if (stored.some((row) => row.capability === capability)) return;
+		const projectPath = `/projects/${encodeURIComponent(registration.neonProjectId)}/branches/${encodeURIComponent(registration.neonBranchId)}`;
+		if (capability === "auth") {
+			const existing = await client.get(`${projectPath}/auth`);
+			credential = parseAuthServiceCredentialPublic(existing.data);
+		} else {
+			const databaseName = matched.params.databaseName;
+			if (!databaseName) {
+				throw new ServiceError(
+					"internal_error",
+					"Data API enable did not identify a database.",
+				);
+			}
+			const existing = await client.get(
+				`${projectPath}/data-api/${encodeURIComponent(databaseName)}`,
+			);
+			credential = parseDataApiServiceCredential(existing.data);
+		}
+	}
+
+	const encrypted = encryptProjectKey(
+		JSON.stringify(credential),
+		dependencies.config.keyEncryptionKey,
+	);
+	await storeServiceCredential(dependencies.sql, {
+		registrationId: registration.id,
+		capability,
+		...encrypted,
+	});
+	await updateRegistrationScopes(
+		dependencies.sql,
+		registration.id,
+		withGrantedCapability(registration.scopes, capability),
+	);
+};
+
 const proxyManagementRequest = async (
 	request: Request,
 	dependencies: AppDependencies,
@@ -749,7 +873,16 @@ const proxyManagementRequest = async (
 	authorizeProxyOperation(matched.operation, authenticated);
 	const body = await proxyRequestBody(request, matched.operation);
 	const client = await projectClient(dependencies, authenticated.registration);
-	const response = await client.request(request.method, `${apiPath}${url.search}`, body);
+	const response = await requestProxiedOperation(
+		client,
+		dependencies,
+		authenticated.registration,
+		matched,
+		request.method,
+		`${apiPath}${url.search}`,
+		body,
+	);
+	if (response instanceof Response) return response;
 	if (matched.operation.derivedCredential === "role_password") {
 		await recordDerivedCredential(dependencies.sql, {
 			registrationId: authenticated.registration.id,
@@ -844,7 +977,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		);
 		const decisions = decideCapabilities(request.capabilities);
 		const capabilities = grantedCapabilities(decisions);
-		const scopes = scopesForCapabilities(capabilities);
+		const scopes = withGrantableConfigureScopes(scopesForCapabilities(capabilities));
 		const registrationId = `reg_${randomUUID()}`;
 		const expiresAt = new Date(Date.now() + dependencies.config.projectTtlSeconds * 1000);
 		let projectId: string | undefined;
@@ -996,7 +1129,9 @@ export const createApp = (dependencies: AppDependencies) => {
 		// would make `GET .../claim` unreachable as soon as its first token expired. During the
 		// ceremony, issue an empty-scope token so claim status and expired-window replacement
 		// remain reachable without restoring project access.
-		const accessScopes = registration.issuanceFrozen ? [] : registration.scopes;
+		const accessScopes = registration.issuanceFrozen
+			? []
+			: withGrantableConfigureScopes(registration.scopes);
 		const access = await mintAccessToken(dependencies.signingKey, {
 			issuer: dependencies.config.issuer,
 			audience: dependencies.config.audience,

@@ -12,6 +12,8 @@ import {
 	formatScopeString,
 	parseScopeString,
 	scopesForCapabilities,
+	withGrantableConfigureScopes,
+	withGrantedCapability,
 } from "../lib/capabilities/scopes.ts";
 
 describe("decideCapabilities", () => {
@@ -107,6 +109,32 @@ describe("scopesForCapabilities", () => {
 		expect(scopesForCapabilities(["data_api", "postgres"])).toEqual(
 			scopesForCapabilities(["postgres", "data_api"]),
 		);
+	});
+});
+
+describe("withGrantableConfigureScopes", () => {
+	it("adds Auth and Data API configure scopes to a postgres-only token", () => {
+		expect(withGrantableConfigureScopes(scopesForCapabilities(["postgres"]))).toEqual([
+			"postgres.read",
+			"postgres.write",
+			"data_api.configure",
+			"auth.configure",
+		]);
+	});
+
+	it("does not grant data_api.query until Data API is enabled", () => {
+		expect(
+			withGrantableConfigureScopes(scopesForCapabilities(["postgres"])),
+		).not.toContain("data_api.query");
+		expect(
+			withGrantedCapability(scopesForCapabilities(["postgres"]), "data_api"),
+		).toEqual([
+			"postgres.read",
+			"postgres.write",
+			"data_api.query",
+			"data_api.configure",
+			"auth.configure",
+		]);
 	});
 });
 

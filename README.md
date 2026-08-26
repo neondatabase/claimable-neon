@@ -17,8 +17,8 @@ flow and how this differs from neon.new are in [`docs/overview.md`](docs/overvie
 
 [Neon is a complete set of cloud backend primitives built around Lakebase Postgres](https://neon.com/docs/introduction/about).
 Claimable Neon starts with the database. The target pre-claim surface can also provision the Neon
-Data API and Managed Better Auth when explicitly requested. Neon Object Storage, Neon Functions,
-and Neon AI Gateway require the project to be claimed.
+Data API and Managed Better Auth when requested at create or enabled later with `neon deploy`. Neon
+Object Storage, Neon Functions, and Neon AI Gateway require the project to be claimed.
 
 ## Why the service sits in the request path
 
@@ -41,8 +41,8 @@ read a project can also delete it. This service enforces the finer capability bo
 | Capability | Pre-claim | Notes |
 |---|---|---|
 | `postgres` | always | Lakebase Postgres is always provisioned. |
-| `data_api` | on request | Neon Data API. Off by default. |
-| `auth` | on request | Managed Better Auth. Off by default. Transfers with the project. |
+| `data_api` | on request or `neon deploy` | Neon Data API. Off by default at create. |
+| `auth` | on request or `neon deploy` | Managed Better Auth. Off by default at create. Transfers with the project. |
 | `storage` | no | Neon Object Storage requires a claim. The S3 data plane bypasses this service, and Neon does not expose the storage quota needed to cap pre-claim usage. |
 | `functions` | no | Deployment requires a claim. `neon dev` can still run declared functions locally against the claimable database. |
 | `ai_gateway` | no | Neon AI Gateway requires a claim. |

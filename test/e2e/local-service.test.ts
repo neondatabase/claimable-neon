@@ -344,6 +344,118 @@ describe("local Claimable Neon service", () => {
 		}
 	});
 
+	it("enables Auth and the Data API after a postgres-only create", async () => {
+		const registrationBody = await json(
+			await fetch(`${baseUrl}/v1/agent/identity`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					type: "anonymous",
+					capabilities: ["postgres"],
+					source: "local_e2e_additive_services",
+				}),
+			}),
+		);
+		const registration = registrationResponse.parse(registrationBody);
+		const projectId = registration.project.id;
+		const branchId = registration.project.branch_id;
+		const assertion = registration.identity_assertion;
+		let cleanupToken: string | undefined;
+		let testFailure: unknown;
+
+		try {
+			const token = await fetch(`${baseUrl}/v1/oauth2/token`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({
+					grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+					assertion,
+					resource: `${baseUrl}/`,
+				}),
+			});
+			const issued = tokenResponse.parse(await json(token));
+			cleanupToken = issued.access_token;
+			expect(issued.scope.split(/\s+/)).toEqual(
+				expect.arrayContaining(["postgres.read", "auth.configure", "data_api.configure"]),
+			);
+			expect(issued.scope.split(/\s+/)).not.toContain("data_api.query");
+
+			const authorization = { authorization: `Bearer ${issued.access_token}` };
+			const missingAuth = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/auth`,
+				{ headers: authorization },
+			);
+			expect(missingAuth.status).toBe(404);
+
+			const enableAuth = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/auth`,
+				{
+					method: "POST",
+					headers: { ...authorization, "content-type": "application/json" },
+					body: JSON.stringify({ auth_provider: "better_auth" }),
+				},
+			);
+			expect(enableAuth.ok).toBe(true);
+
+			const enableDataApi = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/data-api/neondb`,
+				{
+					method: "POST",
+					headers: { ...authorization, "content-type": "application/json" },
+					body: JSON.stringify({ auth_provider: "neon_auth" }),
+				},
+			);
+			expect(enableDataApi.ok).toBe(true);
+
+			const credentials = credentialsResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+						headers: authorization,
+					}),
+				),
+			);
+			expect(credentials.services.auth.jwks_url).toMatch(/^https:\/\//);
+			expect(credentials.services.data_api.url).toMatch(/^https:\/\//);
+
+			const alreadyEnabled = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/auth`,
+				{
+					method: "POST",
+					headers: { ...authorization, "content-type": "application/json" },
+					body: JSON.stringify({ auth_provider: "better_auth" }),
+				},
+			);
+			expect(alreadyEnabled.status).toBe(409);
+
+			const credentialsAfterConflict = credentialsResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+						headers: authorization,
+					}),
+				),
+			);
+			expect(credentialsAfterConflict.services.auth.jwks_url).toBe(
+				credentials.services.auth.jwks_url,
+			);
+		} catch (error) {
+			testFailure = error;
+		}
+
+		cleanupToken ??= await exchange(assertion);
+		const deleted = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${cleanupToken}` },
+		});
+		if (deleted.status !== 204) {
+			throw new Error(
+				`Cleanup failed with HTTP ${deleted.status}: ${await deleted.text()}`,
+			);
+		}
+		if (testFailure) {
+			throw testFailure;
+		}
+	});
+
 	it("mints a replacement claim code after the transfer window expires", async () => {
 		const databaseUrl = process.env.DATABASE_URL;
 		if (!databaseUrl) {

@@ -7,6 +7,7 @@ import {
 	canonicalizePath,
 	matchOperation,
 	projectResponse,
+	shouldRelayUpstreamStatus,
 } from "../lib/proxy/allowlist.ts";
 
 const bodyFor = (method: string, pattern: string) => {
@@ -109,6 +110,59 @@ describe("matchOperation", () => {
 		} catch (error) {
 			expect(isServiceError(error)).toBe(true);
 		}
+	});
+});
+
+describe("shouldRelayUpstreamStatus", () => {
+	it("relays Auth and Data API missing and already-enabled statuses", () => {
+		expect(
+			shouldRelayUpstreamStatus(
+				{ method: "GET", pattern: "/projects/:projectId/branches/:branchId/auth" },
+				404,
+			),
+		).toBe(true);
+		expect(
+			shouldRelayUpstreamStatus(
+				{
+					method: "GET",
+					pattern: "/projects/:projectId/branches/:branchId/data-api/:databaseName",
+				},
+				404,
+			),
+		).toBe(true);
+		expect(
+			shouldRelayUpstreamStatus(
+				{ method: "POST", pattern: "/projects/:projectId/branches/:branchId/auth" },
+				409,
+			),
+		).toBe(true);
+		expect(
+			shouldRelayUpstreamStatus(
+				{
+					method: "POST",
+					pattern: "/projects/:projectId/branches/:branchId/data-api/:databaseName",
+				},
+				409,
+			),
+		).toBe(true);
+	});
+
+	it("does not relay other statuses or routes", () => {
+		expect(
+			shouldRelayUpstreamStatus(
+				{ method: "GET", pattern: "/projects/:projectId/branches/:branchId/auth" },
+				401,
+			),
+		).toBe(false);
+		expect(
+			shouldRelayUpstreamStatus({ method: "GET", pattern: "/projects/:projectId" }, 404),
+		).toBe(false);
+		expect(
+			shouldRelayUpstreamStatus(
+				{ method: "POST", pattern: "/projects/:projectId/branches/:branchId/auth" },
+				404,
+			),
+		).toBe(false);
 	});
 });
 

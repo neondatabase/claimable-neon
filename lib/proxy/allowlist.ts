@@ -251,6 +251,24 @@ export type MatchedOperation = {
 };
 
 /**
+ * Neon 404 "not enabled" and 409 "already enabled" on Auth / Data API must reach the CLI as
+ * those statuses. Mapping them to `upstream_error` 502 breaks `getNeonAuth` → null and
+ * `enableNeonAuth` → GET-existing. Other 4xx stay wrapped: a project-key 401 is ours, not the
+ * caller's.
+ */
+export const shouldRelayUpstreamStatus = (
+	operation: Pick<Operation, "method" | "pattern">,
+	status: number,
+): boolean => {
+	const authOrDataApi =
+		operation.pattern.endsWith("/auth") || operation.pattern.includes("/data-api/");
+	if (!authOrDataApi) return false;
+	if (operation.method === "GET" && status === 404) return true;
+	if (operation.method === "POST" && status === 409) return true;
+	return false;
+};
+
+/**
  * Canonicalize a path before matching. Percent-decoding and `..` resolution happen here, once,
  * so no downstream check can be fooled by a path that matches one pattern and resolves to
  * another.

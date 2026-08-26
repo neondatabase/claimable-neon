@@ -22,7 +22,7 @@ target shape.
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |
-| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API setup, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
+| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
 | Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; live claim of `hidden-star-47141236` into free Testing `org-old-flower-82714815` (204) from neon.new `org-black-art-26279250` (`enterprise`, `managed_by: console`). Same dest 406'd from icy-firefly while that org was `enterprise` (`crimson-frost-45480518`) and from `agent_free` (`rapid-block-01274241`) |

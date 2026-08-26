@@ -52,6 +52,27 @@ export const scopesForCapabilities = (capabilities: readonly Capability[]): Scop
 	return SCOPES.filter((scope) => scopes.has(scope));
 };
 
+/**
+ * Control-plane scopes every unclaimed token carries so `neon deploy` can enable Auth and the
+ * Data API after a postgres-only create. `data_api.query` stays off until Data API is enabled.
+ */
+export const GRANTABLE_CONFIGURE_SCOPES: readonly Scope[] = [
+	"auth.configure",
+	"data_api.configure",
+];
+
+export const withGrantableConfigureScopes = (scopes: readonly Scope[]): Scope[] => {
+	const granted = new Set<Scope>(scopes);
+	for (const scope of GRANTABLE_CONFIGURE_SCOPES) granted.add(scope);
+	return SCOPES.filter((scope) => granted.has(scope));
+};
+
+export const withGrantedCapability = (
+	scopes: readonly Scope[],
+	capability: Capability,
+): Scope[] =>
+	withGrantableConfigureScopes([...scopes, ...scopesForCapabilities([capability])]);
+
 /** Neon's vocabulary for a branch credential — colon-delimited, and a closed set upstream. */
 export const NEON_CREDENTIAL_SCOPES = [
 	"storage:read",

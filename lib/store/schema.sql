@@ -17,8 +17,9 @@ create table if not exists registrations (
     database_name     text        not null default 'neondb',
     role_name         text        not null default 'neondb_owner',
 
-    -- Scopes granted pre-claim. Post-claim scopes are not stored: after a claim the caller uses
-    -- their own Neon credential and this row stops authorizing anything.
+    -- Scopes granted pre-claim, including configure scopes so Auth and the Data API can be
+    -- enabled after a postgres-only create. Post-claim scopes are not stored: after a claim the
+    -- caller uses their own Neon credential and this row stops authorizing anything.
     scopes            text[]      not null default '{}',
 
     created_at        timestamptz not null default now(),

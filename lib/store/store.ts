@@ -329,7 +329,20 @@ export const storeServiceCredential = async (
 ): Promise<void> => {
 	await sql`
 		insert into service_credentials (registration_id, capability, ciphertext, nonce)
-		values (${input.registrationId}, ${input.capability}, ${input.ciphertext}, ${input.nonce})`;
+		values (${input.registrationId}, ${input.capability}, ${input.ciphertext}, ${input.nonce})
+		on conflict (registration_id, capability) do update
+		set ciphertext = excluded.ciphertext, nonce = excluded.nonce`;
+};
+
+export const updateRegistrationScopes = async (
+	sql: Sql,
+	registrationId: string,
+	scopes: readonly Scope[],
+): Promise<void> => {
+	await sql`
+		update registrations
+		set scopes = ${textArray(sql, scopes)}
+		where id = ${registrationId}`;
 };
 
 export const getServiceCredentials = async (
