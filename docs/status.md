@@ -29,7 +29,12 @@ target shape.
 ## Not yet implemented
 
 - Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
-- Dedicated Neon service user whose only organization is the unclaimed-projects org. Mint still uses account API key `claimable-fn-20260825` for `andre.landgraf@databricks.com`. Create, delete, transfer, and revoke use organization API key `claimable-org-20260826` on `org-black-art-26279250`. Minting a project-scoped key still records `created_by` on that key row; it does not set `explicit_project_permission` on the project. Function compute is Neon Prod `soft-morning-58679842`. Andre is admin on the holding org.
+- Dedicated Neon service user whose only organization is the unclaimed-projects org. Not a beta
+  blocker (Andre 2026-08-26): mint still uses account API key `claimable-fn-20260825` for
+  `andre.landgraf@databricks.com`. Create, delete, transfer, and revoke use organization API key
+  `claimable-org-20260826` on `org-black-art-26279250`. Minting a project-scoped key still records
+  `created_by` on that key row; it does not set `explicit_project_permission` on the project.
+  Function compute is Neon Prod `soft-morning-58679842`. Andre is admin on the holding org.
 - A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
 - Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
@@ -38,13 +43,14 @@ target shape.
 
 **Anonymous create-rate limits.** Prod neon.new has no create-rate quota either. It caps unclaimed projects at 100 MB storage, 1 GB transfer, and 72 hours — this service already applies those via `PROJECT_LOGICAL_SIZE_BYTES`, `PROJECT_DATA_TRANSFER_BYTES`, and `PROJECT_TTL_SECONDS`. Unlimited anonymous *creates* are watched through `track.neon.tech` (and local `usage_events`) rather than refused at the edge.
 
-## Deployment blocker
+## Mint still uses a personal key
 
 Neon's endpoint for minting a project-scoped API key rejects organization API keys and requires a
-personal API key. Production therefore needs a dedicated Neon service user whose only organization
-is the organization that holds unclaimed projects. The local environment uses a dedicated,
-revocable personal key under `NEON_API_KEY_KIND=user_local`; configuration validation refuses that
-mode on any non-localhost origin.
+personal API key. Beta runs with account key `claimable-fn-20260825` for mint only; create uses the
+org key so that user is not granted `explicit_project_permission`. A dedicated service user whose
+only organization is the holding org is still the later target. The local environment uses a
+dedicated, revocable personal key under `NEON_API_KEY_KIND=user_local`; configuration validation
+refuses that mode on any non-localhost origin.
 
 ## Decided while reviewing the first contract draft
 

@@ -11,10 +11,10 @@ new API will be https://claimable.neon.tech - built for agents.
 | https://neon.new website | Live. After announce: banner pointing at Claimable Neon docs on https://neon.com. Then redirect to console project creation. |
 | `POST https://neon.new/api/v1/database` | Live until sunset, 1–2 months after the website redirect. Then neon.new is gone. |
 | npm `neon-new` / `get-db` | Live. Deprecation warning after announce, then deprecated. |
-| https://claimable.neon.tech | Live. Function + Vercel forwarder. `PUBLIC_ORIGIN` is this host. |
+| https://claimable.neon.tech | Live. Beta-ready 2026-08-26. Function + Vercel forwarder. `PUBLIC_ORIGIN` is this host. |
 | https://neon.com/docs/reference/claimable-neon | Claimable Neon docs on neon.com. |
 | Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
-| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, and `PUBLIC_ORIGIN` exist. Remaining blockers for going live: dedicated service user, write key, cron. |
+| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, and `PUBLIC_ORIGIN` exist. Beta-ready 2026-08-26 (org-key create; personal key for mint). Write key, dedicated service user, and cron are not beta blockers. Public announce is appendix step 2 (2026-09-10). |
 
 ## Motivation
 
@@ -201,9 +201,9 @@ Two pull requests. The service itself went to `main` as commits between them.
 | https://github.com/neondatabase/claimable-neon/commit/a7ddf2acdfe4fb325993866e5b8d19f1f6a3ec9d | Claim prep rotates issued Postgres passwords only; Auth and Data API transfer with the project. |
 | https://github.com/neondatabase/claimable-neon/pull/2 | `usage_events` + https://track.neon.tech. Reconcile under a reserved postgres.js connection so the status poll can finish after the human accepts. |
 
-Still open: a dedicated service user, a dedicated https://track.neon.tech write key, and automatic
-deletion of expired unclaimed projects (blocked on Functions cron). The Vercel forwarder is
-temporary until Functions can bind a custom hostname.
+Still open after beta: a dedicated service user for mint, a dedicated https://track.neon.tech write
+key, and automatic deletion of expired unclaimed projects (blocked on Functions cron). The Vercel
+forwarder is temporary until Functions can bind a custom hostname.
 
 ## Appendix: Sunsetting neon.new
 
@@ -227,8 +227,10 @@ are not a separate plan.
 
 ### Sequence
 
-1. Ship Claimable Neon end to end (Neon Function, dedicated service user, `ANALYTICS_WRITE_KEY`,
-   https://claimable.neon.tech). Test and verify it works. Nothing public moves before this.
+1. Ship Claimable Neon end to end (Neon Function, https://claimable.neon.tech). Test and verify it
+   works. Done 2026-08-26 for beta: org-key create plus personal mint key. Dedicated service user
+   and `ANALYTICS_WRITE_KEY` are not required to start beta. Steps 2–10 are the public sunset, not
+   beta.
 2. Announce.
 3. Banner on https://neon.new: the new version is on the Claimable Neon docs page on
    https://neon.com.
@@ -248,8 +250,8 @@ new work. `claim_url` is a bookmark: first visit starts the Claimable Neon cerem
 
 ### What not to do
 
-- Banner, swap neon.com docs, warn CLIs, or outreach before appendix step 1 is complete
-  (dedicated service user, write key, verified origin).
+- Banner, swap neon.com docs, warn CLIs, or outreach before appendix step 2 (public announce,
+  2026-09-10). Beta of https://claimable.neon.tech is allowed; that is not announce.
 - Redirect the website or remove the API before the 1–2 month windows.
 - Keep `startTransfer` at create “for compatibility.”
 - 301 `POST /api/v1/database` to `POST /v1/agent/identity`.
