@@ -14,7 +14,7 @@ new API will be https://claimable.neon.tech - built for agents.
 | https://claimable.neon.tech | Live. Beta-ready 2026-08-26. Function + Vercel forwarder. `PUBLIC_ORIGIN` is this host. |
 | https://neon.com/docs/reference/claimable-neon | Claimable Neon docs on neon.com. |
 | Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
-| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, and `PUBLIC_ORIGIN` exist. Beta-ready 2026-08-26 (org-key create; personal key for mint). Write key, dedicated service user, and cron are not beta blockers. Public announce is appendix step 2 (2026-09-10). |
+| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, `PUBLIC_ORIGIN`, and the dedicated track.neon.tech write key exist. Beta-ready 2026-08-26 (org-key create; personal key for mint). Dedicated service user and cron are not beta blockers. Public announce is appendix step 2 (2026-09-10). |
 
 ## Motivation
 
@@ -136,8 +136,8 @@ https://track.neon.tech: `registration_created`, `token_issued`, `credentials_re
 | Human opened claim, never finished | `claim_started` without `claim_reconciled` |
 | Deleted instead of claimed | `registration_deleted` |
 
-Until a dedicated write key and a dbt table exist, https://track.neon.tech is a no-op and
-`usage_events` is local only.
+The dedicated write key is live. `usage_events` is local durability. Warehouse rollups in
+`prod.product.claimable_neon_*` wait on a dbt stg/fact for source `claimable-neon`.
 
 ### What we cannot see yet
 
@@ -229,7 +229,7 @@ are not a separate plan.
 
 1. Ship Claimable Neon end to end (Neon Function, https://claimable.neon.tech). Test and verify it
    works. Done 2026-08-26 for beta: org-key create plus personal mint key. Dedicated service user
-   and `ANALYTICS_WRITE_KEY` are not required to start beta. Steps 2–10 are the public sunset, not
+   is not required to start beta. `ANALYTICS_WRITE_KEY` is set. Steps 2–10 are the public sunset, not
    beta.
 2. Announce.
 3. Banner on https://neon.new: the new version is on the Claimable Neon docs page on

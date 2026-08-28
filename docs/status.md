@@ -21,7 +21,7 @@ target shape.
 | Claim-code re-issue: unused codes are replaced; after browser redemption a new code is minted only once the transfer window expires and the project is still in the holding org | `lib/claims/issuance.ts`, `lib/app/app.ts` | `test/claim-issuance.test.ts`, `test/e2e/local-service.test.ts` |
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
-| Usage events in the state database and optional track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts` |
+| Usage events in the state database and track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts`; live `POST https://track.neon.tech/v1/track` 202 after analytics-events prod 2026-08-28 |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
@@ -36,7 +36,7 @@ target shape.
   `claimable-org-20260826` on `org-black-art-26279250`. Minting a project-scoped key still records
   `created_by` on that key row; it does not set `explicit_project_permission` on the project.
   Function compute is Neon Prod `soft-morning-58679842`. Andre is admin on the holding org.
-- A dedicated `track.neon.tech` write key in analytics-events `accepted_write_keys` (neon-cloud, sops). Until `ANALYTICS_WRITE_KEY` is set, track is a no-op; `usage_events` still records locally.
+- dbt stg/fact for analytics-events source `claimable-neon`. The dedicated write key is live (`ANALYTICS_WRITE_KEY` on Function deployment 15; analytics-events prod 2026-08-28). `prod.product.claimable_neon_*` is still empty.
 - Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
 
@@ -80,8 +80,9 @@ would send on Neon's reputation. Claim does not disable Auth if it was granted.
 registration, token issue, claim, proxy call, credentials read, and deletion also writes a
 `usage_events` row for local durability. The warehouse source of truth is analytics-events →
 Zerobus (`analytics_events_prod.default.events`, then `prod.transformed.stg_tracking_zerobus_*` /
-`fact_segment_*`). Orbit rolls those events into `prod.product.claimable_neon_*` once a write key
-and a dbt table exist. neon.new's JDBC-from-state-DB path is not used here.
+`fact_segment_*`). The dedicated write key is live. Orbit rollups in `prod.product.claimable_neon_*`
+wait on a dbt stg/fact for `event_source` `claimable-neon`. neon.new's JDBC-from-state-DB path is
+not used here.
 
 **Claim preparation rotates issued Postgres secrets before exposing the Neon transfer URL.** The
 service revokes the project-scoped API key, disables the compute to terminate and block database
