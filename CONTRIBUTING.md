@@ -163,14 +163,26 @@ Ship code without touching env:
 ```bash
 neon functions deploy claimable \
   --profile dbx \
-  --src src/server.ts \
+  --src src/function.ts \
   --project-id soft-morning-58679842 \
   --branch main \
   --wait
 ```
 
 Omitting `--env` keeps the Function's existing environment. `neon functions deploy --env KEY=VALUE`
-merges that key.
+merges that key (repeatable; not an env-file path). `.env.deploy` is a local record of live
+secrets, including `SENTRY_DSN`; pass those values as `--env KEY=VALUE`. On each ship, merge a
+new release id:
+
+```bash
+neon functions deploy claimable \
+  --profile dbx \
+  --src src/function.ts \
+  --project-id soft-morning-58679842 \
+  --branch main \
+  --env "SENTRY_RELEASE=$(git rev-parse --short HEAD)" \
+  --wait
+```
 
 `neon deploy` (config apply) sends the `neon.ts` `env` object as a **replacement** map.
 `process.env.X ?? ""` becomes empty strings when the shell has no secrets, the Function fails

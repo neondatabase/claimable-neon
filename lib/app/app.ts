@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -915,6 +916,26 @@ const proxyManagementRequest = async (
 export const createApp = (dependencies: AppDependencies) => {
 	const app = new Hono<{ Variables: Variables }>();
 
+	app.use("*", (context, next) =>
+		Sentry.withIsolationScope(() =>
+			Sentry.startSpan(
+				{
+					op: "http.server",
+					name: `${context.req.method} ${context.req.path}`,
+					forceTransaction: true,
+					attributes: {
+						"http.request.method": context.req.method,
+						"url.path": context.req.path,
+					},
+				},
+				async (span) => {
+					await next();
+					span.setAttribute("http.response.status_code", context.res.status);
+				},
+			).finally(() => Sentry.flush(2000)),
+		),
+	);
+
 	app.use("*", async (context, next) => {
 		context.set("requestId", context.req.header("x-request-id") ?? randomUUID());
 		try {
@@ -1459,6 +1480,11 @@ export const createApp = (dependencies: AppDependencies) => {
 	app.onError((error, context) => {
 		const serviceError = toServiceError(error);
 		const requestId = context.get("requestId") ?? randomUUID();
+		if (serviceError.status >= 500) {
+			Sentry.captureException(error, {
+				tags: { code: serviceError.code },
+			});
+		}
 		if (context.req.method === "POST" && context.req.path === "/claim") {
 			return claimErrorResponse(serviceError, requestId);
 		}
