@@ -75,8 +75,9 @@ const dataApiCredential = z.object({
 });
 
 const authCredentialPublic = z.object({
+	auth_provider: z.string().min(1),
+	base_url: z.string().url(),
 	jwks_url: z.string().url(),
-	base_url: z.string().url().optional(),
 });
 
 export const parseAuthServiceCredential = (data: unknown) =>

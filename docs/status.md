@@ -23,7 +23,7 @@ target shape.
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts`; live `POST https://track.neon.tech/v1/track` 202 after analytics-events prod 2026-08-28 |
-| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
+| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs (including Data API `neon_auth` recording Auth from GET `/auth`), and cleanup | `lib/neon/`, `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
 | Sentry error monitoring on the Function (`src/function.ts` imports `instrument.ts`; `src/local.ts` does not) | `src/instrument.ts`, `src/function.ts`, `lib/app/app.ts` | `test/errors.test.ts`; captures `internal_error`, transport `upstream_error`, and upstream 5xx. Tags `upstream_status` when Neon returned one. 4xx `ServiceError`s are not issues. |

@@ -42,6 +42,21 @@ const credentialsResponse = z.object({
 	}),
 });
 
+const publicAuthCredentialsResponse = z.object({
+	project_id: z.string().min(1),
+	branch_id: z.string().min(1),
+	database_url: z.string().min(1),
+	expires_at: z.string().datetime(),
+	services: z.object({
+		data_api: z.object({ url: z.string().url() }),
+		auth: z.object({
+			auth_provider: z.string().min(1),
+			base_url: z.string().url(),
+			jwks_url: z.string().url(),
+		}),
+	}),
+});
+
 const errorResponse = z.object({
 	error: z.object({
 		code: z.string(),
@@ -428,6 +443,127 @@ describe("local Claimable Neon service", () => {
 			expect(alreadyEnabled.status).toBe(409);
 
 			const credentialsAfterConflict = credentialsResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+						headers: authorization,
+					}),
+				),
+			);
+			expect(credentialsAfterConflict.services.auth.jwks_url).toBe(
+				credentials.services.auth.jwks_url,
+			);
+		} catch (error) {
+			testFailure = error;
+		}
+
+		cleanupToken ??= await exchange(assertion);
+		const deleted = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${cleanupToken}` },
+		});
+		if (deleted.status !== 204) {
+			throw new Error(
+				`Cleanup failed with HTTP ${deleted.status}: ${await deleted.text()}`,
+			);
+		}
+		if (testFailure) {
+			throw testFailure;
+		}
+	});
+
+	it("records Auth when Data API provisions neon_auth first", async () => {
+		const registrationBody = await json(
+			await fetch(`${baseUrl}/v1/agent/identity`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					type: "anonymous",
+					capabilities: ["postgres"],
+					source: "local_e2e_data_api_provisions_auth",
+				}),
+			}),
+		);
+		const registration = registrationResponse.parse(registrationBody);
+		const projectId = registration.project.id;
+		const branchId = registration.project.branch_id;
+		const assertion = registration.identity_assertion;
+		let cleanupToken: string | undefined;
+		let testFailure: unknown;
+
+		try {
+			const token = await fetch(`${baseUrl}/v1/oauth2/token`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({
+					grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+					assertion,
+					resource: `${baseUrl}/`,
+				}),
+			});
+			const issued = tokenResponse.parse(await json(token));
+			cleanupToken = issued.access_token;
+			const authorization = { authorization: `Bearer ${issued.access_token}` };
+
+			const enableDataApi = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/data-api/neondb`,
+				{
+					method: "POST",
+					headers: { ...authorization, "content-type": "application/json" },
+					body: JSON.stringify({ auth_provider: "neon_auth" }),
+				},
+			);
+			expect(enableDataApi.status).toBe(201);
+
+			const credentialsBody = await json(
+				await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+					headers: authorization,
+				}),
+			);
+			const credentials = publicAuthCredentialsResponse.parse(credentialsBody);
+			expect(credentials.services.auth.jwks_url).toMatch(/^https:\/\//);
+			expect(credentialsBody).toEqual(
+				expect.objectContaining({
+					services: expect.objectContaining({
+						auth: expect.not.objectContaining({
+							secret_server_key: expect.anything(),
+						}),
+					}),
+				}),
+			);
+
+			const refreshed = tokenResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/oauth2/token`, {
+						method: "POST",
+						headers: { "content-type": "application/x-www-form-urlencoded" },
+						body: new URLSearchParams({
+							grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+							assertion,
+							resource: `${baseUrl}/`,
+						}),
+					}),
+				),
+			);
+			expect(refreshed.scope.split(/\s+/)).toEqual(
+				expect.arrayContaining([
+					"postgres.read",
+					"data_api.query",
+					"data_api.configure",
+					"auth.configure",
+				]),
+			);
+
+			const alreadyEnabled = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/auth`,
+				{
+					method: "POST",
+					headers: { ...authorization, "content-type": "application/json" },
+					body: JSON.stringify({ auth_provider: "better_auth" }),
+				},
+			);
+			expect(alreadyEnabled.status).toBe(409);
+
+			const credentialsAfterConflict = publicAuthCredentialsResponse.parse(
 				await json(
 					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
 						headers: authorization,

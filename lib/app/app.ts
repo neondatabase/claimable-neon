@@ -819,6 +819,7 @@ const requestProxiedOperation = async (
 				matched,
 				client,
 				response.data,
+				body,
 			);
 		}
 		return response;
@@ -830,7 +831,14 @@ const requestProxiedOperation = async (
 			shouldRelayUpstreamStatus(matched.operation, error.options.upstreamStatus)
 		) {
 			if (error.options.upstreamStatus === 409) {
-				await persistEnabledService(dependencies, registration, matched, client);
+				await persistEnabledService(
+					dependencies,
+					registration,
+					matched,
+					client,
+					undefined,
+					body,
+				);
 			}
 			return relayedUpstreamResponse(error);
 		}
@@ -838,47 +846,19 @@ const requestProxiedOperation = async (
 	}
 };
 
-const persistEnabledService = async (
+const dataApiRequestedNeonAuth = (body: unknown): boolean => {
+	if (typeof body !== "object" || body === null) return false;
+	if (!("auth_provider" in body)) return false;
+	return body.auth_provider === "neon_auth";
+};
+
+const persistServiceCredential = async (
 	dependencies: AppDependencies,
 	registration: Registration,
-	matched: MatchedOperation,
-	client: NeonClient,
-	data?: unknown,
-): Promise<void> => {
-	const capability = matched.operation.capability;
-	if (capability !== "auth" && capability !== "data_api") return;
-	if (matched.operation.method !== "POST") return;
-
-	let credential: unknown;
-	if (data !== undefined) {
-		credential =
-			capability === "auth"
-				? parseAuthServiceCredential(data)
-				: parseDataApiServiceCredential(data);
-	} else {
-		const stored = await getServiceCredentials(dependencies.sql, registration.id);
-		// GET /auth returns the public fields only. A 409 retry must not replace a create-time
-		// payload with that subset.
-		if (stored.some((row) => row.capability === capability)) return;
-		const projectPath = `/projects/${encodeURIComponent(registration.neonProjectId)}/branches/${encodeURIComponent(registration.neonBranchId)}`;
-		if (capability === "auth") {
-			const existing = await client.get(`${projectPath}/auth`);
-			credential = parseAuthServiceCredentialPublic(existing.data);
-		} else {
-			const databaseName = matched.params.databaseName;
-			if (!databaseName) {
-				throw new ServiceError(
-					"internal_error",
-					"Data API enable did not identify a database.",
-				);
-			}
-			const existing = await client.get(
-				`${projectPath}/data-api/${encodeURIComponent(databaseName)}`,
-			);
-			credential = parseDataApiServiceCredential(existing.data);
-		}
-	}
-
+	capability: "auth" | "data_api",
+	credential: unknown,
+	scopes: Registration["scopes"],
+): Promise<Registration["scopes"]> => {
 	const encrypted = encryptProjectKey(
 		JSON.stringify(credential),
 		dependencies.config.keyEncryptionKey,
@@ -888,11 +868,113 @@ const persistEnabledService = async (
 		capability,
 		...encrypted,
 	});
-	await updateRegistrationScopes(
-		dependencies.sql,
-		registration.id,
-		withGrantedCapability(registration.scopes, capability),
+	const next = withGrantedCapability(scopes, capability);
+	await updateRegistrationScopes(dependencies.sql, registration.id, next);
+	return next;
+};
+
+const persistAuthFromExisting = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+	client: NeonClient,
+	scopes: Registration["scopes"],
+): Promise<Registration["scopes"]> => {
+	const projectPath = `/projects/${encodeURIComponent(registration.neonProjectId)}/branches/${encodeURIComponent(registration.neonBranchId)}`;
+	const existing = await client.get(`${projectPath}/auth`);
+	return persistServiceCredential(
+		dependencies,
+		registration,
+		"auth",
+		parseAuthServiceCredentialPublic(existing.data),
+		scopes,
 	);
+};
+
+const persistEnabledDataApi = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+	matched: MatchedOperation,
+	client: NeonClient,
+	data: unknown,
+	body: unknown,
+	stored: Awaited<ReturnType<typeof getServiceCredentials>>,
+): Promise<void> => {
+	const has = (value: "auth" | "data_api") =>
+		stored.some((row) => row.capability === value);
+	let scopes = registration.scopes;
+	if (data !== undefined) {
+		scopes = await persistServiceCredential(
+			dependencies,
+			registration,
+			"data_api",
+			parseDataApiServiceCredential(data),
+			scopes,
+		);
+	} else if (!has("data_api")) {
+		const databaseName = matched.params.databaseName;
+		if (!databaseName) {
+			throw new ServiceError(
+				"internal_error",
+				"Data API enable did not identify a database.",
+			);
+		}
+		const projectPath = `/projects/${encodeURIComponent(registration.neonProjectId)}/branches/${encodeURIComponent(registration.neonBranchId)}`;
+		const existing = await client.get(
+			`${projectPath}/data-api/${encodeURIComponent(databaseName)}`,
+		);
+		scopes = await persistServiceCredential(
+			dependencies,
+			registration,
+			"data_api",
+			parseDataApiServiceCredential(existing.data),
+			scopes,
+		);
+	}
+	// The CLI may only GET the Auth service created as a Data API side effect.
+	if (dataApiRequestedNeonAuth(body) && !has("auth")) {
+		await persistAuthFromExisting(dependencies, registration, client, scopes);
+	}
+};
+
+const persistEnabledService = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+	matched: MatchedOperation,
+	client: NeonClient,
+	data: unknown,
+	body: unknown,
+): Promise<void> => {
+	const capability = matched.operation.capability;
+	if (capability !== "auth" && capability !== "data_api") return;
+	if (matched.operation.method !== "POST") return;
+
+	const stored = await getServiceCredentials(dependencies.sql, registration.id);
+	if (capability === "data_api") {
+		await persistEnabledDataApi(
+			dependencies,
+			registration,
+			matched,
+			client,
+			data,
+			body,
+			stored,
+		);
+		return;
+	}
+
+	if (data !== undefined) {
+		await persistServiceCredential(
+			dependencies,
+			registration,
+			"auth",
+			parseAuthServiceCredential(data),
+			registration.scopes,
+		);
+		return;
+	}
+	// Preserve create-time credentials because GET /auth omits private fields.
+	if (stored.some((row) => row.capability === "auth")) return;
+	await persistAuthFromExisting(dependencies, registration, client, registration.scopes);
 };
 
 const proxyManagementRequest = async (
