@@ -720,6 +720,7 @@ export type UsageEventName =
 	| "registration_created"
 	| "token_issued"
 	| "claim_started"
+	| "claim_missing_project"
 	| "claim_reconciled"
 	| "proxy_call"
 	| "credentials_read"

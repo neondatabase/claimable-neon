@@ -137,6 +137,14 @@ export class ServiceError extends Error {
 export const isServiceError = (value: unknown): value is ServiceError =>
 	value instanceof ServiceError;
 
+export const shouldCaptureServiceError = (error: ServiceError): boolean => {
+	if (error.code === "internal_error") return true;
+	if (error.code !== "upstream_error") return false;
+	const status = error.options.upstreamStatus;
+	if (status === undefined) return true;
+	return status >= 500;
+};
+
 /**
  * Wrap an unknown thrown value. Deliberately does not inspect the value for a status or a
  * message to reuse: an unrecognised failure is an `internal_error`, and guessing at its shape is

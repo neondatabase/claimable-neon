@@ -124,8 +124,10 @@ Track agents down the path above. The questions:
 
 Each of these writes a `usage_events` row and, when `ANALYTICS_WRITE_KEY` is set, an event to
 https://track.neon.tech: `registration_created`, `token_issued`, `credentials_read`, `proxy_call`,
-`claim_started`, `claim_reconciled`, `registration_deleted`. Registration accepts `source`
-(default `raw_api`). Denied capabilities are rows in `capability_requests`.
+`claim_started`, `claim_missing_project`, `claim_reconciled`, `registration_deleted`. Registration
+accepts `source` (default `raw_api`). Denied capabilities are rows in `capability_requests`.
+`claim_missing_project` is a human submitting a claim code after the project left the holding org
+(`reason` `deleted` or `already_claimed`).
 
 | Question | From those events |
 |---|---|
@@ -134,6 +136,7 @@ https://track.neon.tech: `registration_created`, `token_issued`, `credentials_re
 | Registered, never got a token | `registration_created` without `token_issued` |
 | Got credentials, never claimed | `credentials_read` without `claim_started` |
 | Human opened claim, never finished | `claim_started` without `claim_reconciled` |
+| Claimed a project that is gone | `claim_missing_project` (`reason` `deleted` or `already_claimed`) |
 | Deleted instead of claimed | `registration_deleted` |
 
 The dedicated write key is live. `usage_events` is local durability. Warehouse rollups in
@@ -145,8 +148,8 @@ Steps 1–2 are unauthenticated GETs (https://neon.com/docs/llms.txt,
 https://neon.com/auth.md, well-known). They are not usage events. Fall-off before
 `POST /v1/agent/identity` is invisible.
 
-Errors are not usage events. An agent that hits `capability_requires_claim` or `invalid_request`
-and stops has no funnel step.
+Other errors are not usage events. An agent that hits `capability_requires_claim` or
+`invalid_request` and stops has no funnel step.
 
 Unclaimed expiry has no event. The janitor is not built. `project.expires_at` is on the
 registration; nothing records “expired unclaimed.”

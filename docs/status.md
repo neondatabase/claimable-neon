@@ -10,7 +10,7 @@ target shape.
 |---|---|---|
 | Capability decisions and demand recording | `lib/capabilities/capabilities.ts` | `test/capabilities.test.ts` |
 | Scope vocabulary and the clamp onto Neon's credential scopes | `lib/capabilities/scopes.ts` | `test/capabilities.test.ts` |
-| Error envelope with provenance and retryability | `lib/errors/errors.ts` | covered indirectly |
+| Error envelope with provenance and retryability | `lib/errors/errors.ts` | `test/errors.test.ts` |
 | Management API allowlist: routes, per-operation body schemas, path canonicalization, response projection | `lib/proxy/allowlist.ts` | `test/allowlist.test.ts` |
 | Token minting and verification, assertion vs access separation | `lib/tokens/tokens.ts` | `test/tokens.test.ts` |
 | Signing key load/import/export | `lib/tokens/keys.ts` | `test/tokens.test.ts` |
@@ -19,13 +19,14 @@ target shape.
 | auth.md, llms.txt, and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
 | Claim-code re-issue: unused codes are replaced; after browser redemption a new code is minted only once the transfer window expires and the project is still in the holding org | `lib/claims/issuance.ts`, `lib/app/app.ts` | `test/claim-issuance.test.ts`, `test/e2e/local-service.test.ts` |
+| Claim of a project gone from the holding org: `not_found` / `project_claimed`, plus `claim_missing_project` | `lib/claims/missing-project.ts`, `lib/app/app.ts` | `test/missing-project.test.ts`, `test/e2e/local-service.test.ts` |
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts`; live `POST https://track.neon.tech/v1/track` 202 after analytics-events prod 2026-08-28 |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs, and cleanup | `lib/neon/` | `test/e2e/local-service.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
-| Sentry error monitoring on the Function (`src/function.ts` imports `instrument.ts`; `src/local.ts` does not) | `src/instrument.ts`, `src/function.ts`, `lib/app/app.ts` | live issue after a gated throw; 4xx `ServiceError`s are not issues |
+| Sentry error monitoring on the Function (`src/function.ts` imports `instrument.ts`; `src/local.ts` does not) | `src/instrument.ts`, `src/function.ts`, `lib/app/app.ts` | `test/errors.test.ts`; captures `internal_error`, transport `upstream_error`, and upstream 5xx. Tags `upstream_status` when Neon returned one. 4xx `ServiceError`s are not issues. |
 | Pre-transfer credential teardown and accepted-to-reconciled transition | `lib/claims/reconcile.ts` | recorded in `test/e2e/website-and-claim.test.ts`; live claim of `hidden-star-47141236` into free Testing `org-old-flower-82714815` (204) from neon.new `org-black-art-26279250` (`enterprise`, `managed_by: console`). Same dest 406'd from icy-firefly while that org was `enterprise` (`crimson-frost-45480518`) and from `agent_free` (`rapid-block-01274241`) |
 
 ## Not yet implemented
@@ -38,7 +39,7 @@ target shape.
   `created_by` on that key row; it does not set `explicit_project_permission` on the project.
   Function compute is Neon Prod `soft-morning-58679842`. Andre is admin on the holding org.
 - dbt stg/fact for analytics-events source `claimable-neon`. The dedicated write key is live (`ANALYTICS_WRITE_KEY` on Function deployment 15; analytics-events prod 2026-08-28). `prod.product.claimable_neon_*` is still empty.
-- Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known), for errors, and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible.
+- Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known) and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible. `claim_missing_project` covers a human claim of a project that left the holding org.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
 
 ## Deferred

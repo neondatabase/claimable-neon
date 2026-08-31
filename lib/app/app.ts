@@ -17,6 +17,7 @@ import {
 } from "../capabilities/scopes.ts";
 import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
 import { claimCodeIssuance } from "../claims/issuance.ts";
+import { missingClaimableProjectError } from "../claims/missing-project.ts";
 import { prepareClaimTransfer, reconcileAcceptedClaim } from "../claims/reconcile.ts";
 import { type Config, tokenVerifyExpected } from "../config/config.ts";
 import { decryptProjectKey, encryptProjectKey } from "../crypto/project-keys.ts";
@@ -27,7 +28,12 @@ import {
 	protectedResourceMetadata,
 } from "../discovery/discovery.ts";
 import { PROXY_SECRET_HEADER, requireProxySharedSecret } from "../edge/secret.ts";
-import { ServiceError, isServiceError, toServiceError } from "../errors/errors.ts";
+import {
+	ServiceError,
+	isServiceError,
+	shouldCaptureServiceError,
+	toServiceError,
+} from "../errors/errors.ts";
 import { NeonClient, type NeonResponse } from "../neon/client.ts";
 import {
 	configureCapabilities,
@@ -49,6 +55,7 @@ import {
 	shouldRelayUpstreamStatus,
 } from "../proxy/allowlist.ts";
 import {
+	type ClaimAttempt,
 	type Registration,
 	type Sql,
 	type UsageEventName,
@@ -142,6 +149,8 @@ const emitUsage = async (
 		method?: string;
 		pattern?: string;
 		identityType?: string;
+		reason?: string;
+		claimState?: string;
 	},
 ): Promise<void> => {
 	const properties: Record<string, string> = {};
@@ -149,6 +158,8 @@ const emitUsage = async (
 	if (fields.method !== undefined) properties.method = fields.method;
 	if (fields.pattern !== undefined) properties.pattern = fields.pattern;
 	if (fields.identityType !== undefined) properties.identity_type = fields.identityType;
+	if (fields.reason !== undefined) properties.reason = fields.reason;
+	if (fields.claimState !== undefined) properties.claim_state = fields.claimState;
 	await recordUsageEvent(dependencies.sql, {
 		event,
 		source: fields.source,
@@ -164,6 +175,44 @@ const emitUsage = async (
 		trackProperties.project_id = fields.projectId;
 	}
 	dependencies.analytics.track(event, trackProperties);
+};
+
+const beginClaimTransfer = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+	attempt: ClaimAttempt,
+): Promise<string> => {
+	let transferRequestId = attempt.transferRequestId;
+	try {
+		if (!transferRequestId) {
+			const transfer = await createProjectTransferRequest(
+				dependencies.orgClient,
+				registration.neonProjectId,
+				dependencies.config.claimAttemptTtlSeconds,
+			);
+			transferRequestId = transfer.id;
+			await startClaimTransfer(dependencies.sql, {
+				attemptId: attempt.id,
+				transferRequestId,
+				expiresAt: transfer.expiresAt,
+			});
+		}
+		await freezeIssuance(dependencies.sql, registration.id);
+		await setClaimState(dependencies.sql, registration.id, "pending");
+		await prepareClaimTransfer(dependencies, registration);
+		return transferRequestId;
+	} catch (error) {
+		const mapped = missingClaimableProjectError(error, registration);
+		if (!mapped) throw error;
+		await emitUsage(dependencies, "claim_missing_project", {
+			source: registration.source,
+			registrationId: registration.id,
+			projectId: registration.neonProjectId,
+			reason: mapped.code === "project_claimed" ? "already_claimed" : "deleted",
+			claimState: registration.claimState,
+		});
+		throw mapped;
+	}
 };
 
 type Variables = {
@@ -1326,23 +1375,11 @@ export const createApp = (dependencies: AppDependencies) => {
 				lockedSql,
 				registration.id,
 			);
-			let transferRequestId = currentAttempt.transferRequestId;
-			if (!transferRequestId) {
-				const transfer = await createProjectTransferRequest(
-					lockedDependencies.orgClient,
-					currentRegistration.neonProjectId,
-					lockedDependencies.config.claimAttemptTtlSeconds,
-				);
-				transferRequestId = transfer.id;
-				await startClaimTransfer(lockedSql, {
-					attemptId: currentAttempt.id,
-					transferRequestId,
-					expiresAt: transfer.expiresAt,
-				});
-			}
-			await freezeIssuance(lockedSql, currentRegistration.id);
-			await setClaimState(lockedSql, currentRegistration.id, "pending");
-			await prepareClaimTransfer(lockedDependencies, currentRegistration);
+			const transferRequestId = await beginClaimTransfer(
+				lockedDependencies,
+				currentRegistration,
+				currentAttempt,
+			);
 			await emitUsage(lockedDependencies, "claim_started", {
 				source: currentRegistration.source,
 				registrationId: currentRegistration.id,
@@ -1480,10 +1517,12 @@ export const createApp = (dependencies: AppDependencies) => {
 	app.onError((error, context) => {
 		const serviceError = toServiceError(error);
 		const requestId = context.get("requestId") ?? randomUUID();
-		if (serviceError.status >= 500) {
-			Sentry.captureException(error, {
-				tags: { code: serviceError.code },
-			});
+		if (shouldCaptureServiceError(serviceError)) {
+			const tags: Record<string, string> = { code: serviceError.code };
+			if (serviceError.options.upstreamStatus !== undefined) {
+				tags.upstream_status = String(serviceError.options.upstreamStatus);
+			}
+			Sentry.captureException(error, { tags });
 		}
 		if (context.req.method === "POST" && context.req.path === "/claim") {
 			return claimErrorResponse(serviceError, requestId);

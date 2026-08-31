@@ -585,4 +585,98 @@ describe("local Claimable Neon service", () => {
 			throw testFailure;
 		}
 	});
+
+	it("returns not_found when a human claims a project already deleted from the holding org", async () => {
+		const databaseUrl = process.env.DATABASE_URL;
+		if (!databaseUrl) {
+			throw new Error("DATABASE_URL is required to assert claim_missing_project.");
+		}
+		const orgApiKey = process.env.NEON_ORG_API_KEY;
+		if (!orgApiKey) {
+			throw new Error("NEON_ORG_API_KEY is required to delete the Neon project.");
+		}
+
+		const registrationBody = await json(
+			await fetch(`${baseUrl}/v1/agent/identity`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					type: "anonymous",
+					capabilities: ["postgres"],
+					source: "local_e2e_missing_project",
+				}),
+			}),
+		);
+		const registration = registrationResponse.parse(registrationBody);
+		const projectId = registration.project.id;
+		const assertion = registration.identity_assertion;
+		let testFailure: unknown;
+
+		try {
+			const accessToken = await exchange(assertion);
+			const claim = claimCodeResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+						method: "POST",
+						headers: { authorization: `Bearer ${accessToken}` },
+					}),
+				),
+			);
+
+			const deleted = await fetch(
+				`https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}`,
+				{
+					method: "DELETE",
+					headers: {
+						authorization: `Bearer ${orgApiKey}`,
+						accept: "application/json",
+					},
+				},
+			);
+			if (deleted.status !== 200 && deleted.status !== 204 && deleted.status !== 404) {
+				throw new Error(
+					`Holding-org delete failed with HTTP ${deleted.status}: ${await deleted.text()}`,
+				);
+			}
+
+			const browserClaim = await fetch(`${baseUrl}/claim`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ user_code: claim.user_code }),
+				redirect: "manual",
+			});
+			expect(browserClaim.status).toBe(404);
+			expect(browserClaim.headers.get("content-type")).toContain("text/html");
+			expect(await browserClaim.text()).toContain(
+				"This claimable project no longer exists.",
+			);
+
+			const sql = postgres(databaseUrl, { prepare: false });
+			try {
+				const [row] = await sql<{ event: string; properties: { reason?: string } }[]>`
+					select event, properties
+					from usage_events
+					where project_id = ${projectId}
+						and event = 'claim_missing_project'
+					order by created_at desc
+					limit 1`;
+				expect(row?.event).toBe("claim_missing_project");
+				expect(row?.properties.reason).toBe("deleted");
+			} finally {
+				await sql.end({ timeout: 5 });
+			}
+		} catch (error) {
+			testFailure = error;
+		}
+
+		const sql = postgres(databaseUrl, { prepare: false });
+		try {
+			await sql`delete from registrations where neon_project_id = ${projectId}`;
+		} finally {
+			await sql.end({ timeout: 5 });
+		}
+		if (testFailure) {
+			throw testFailure;
+		}
+	});
 });
