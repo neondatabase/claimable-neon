@@ -99,6 +99,47 @@ const json = async (response: Response): Promise<unknown> => {
 	return body;
 };
 
+const postClaimCode = (userCode: string) =>
+	fetch(`${baseUrl}/claim`, {
+		method: "POST",
+		headers: { "content-type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({ user_code: userCode }),
+		redirect: "manual",
+	});
+
+const assertLiveCodeRedirectsIdempotently = async (
+	userCode: string,
+	projectId: string,
+	databaseUrl: string,
+): Promise<void> => {
+	const [firstSubmit, overlappingSubmit] = await Promise.all([
+		postClaimCode(userCode),
+		postClaimCode(userCode),
+	]);
+	expect(firstSubmit.status).toBe(303);
+	expect(overlappingSubmit.status).toBe(303);
+	const firstLocation = firstSubmit.headers.get("location");
+	const overlappingLocation = overlappingSubmit.headers.get("location");
+	if (!firstLocation || !overlappingLocation) {
+		throw new Error("Claim redirect omitted Location.");
+	}
+	expect(overlappingLocation).toBe(firstLocation);
+	const replay = await postClaimCode(userCode);
+	expect(replay.status).toBe(303);
+	expect(replay.headers.get("location")).toBe(firstLocation);
+
+	const sql = postgres(databaseUrl, { prepare: false });
+	try {
+		const started = await sql<{ count: number }[]>`
+			select count(*)::int as count
+			from usage_events
+			where project_id = ${projectId} and event = 'claim_started'`;
+		expect(started[0]?.count).toBe(1);
+	} finally {
+		await sql.end({ timeout: 5 });
+	}
+};
+
 const exchange = async (assertion: string): Promise<string> => {
 	const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
 		method: "POST",
@@ -629,13 +670,11 @@ describe("local Claimable Neon service", () => {
 					}),
 				),
 			);
-			const browserClaim = await fetch(`${baseUrl}/claim`, {
-				method: "POST",
-				headers: { "content-type": "application/x-www-form-urlencoded" },
-				body: new URLSearchParams({ user_code: firstClaim.user_code }),
-				redirect: "manual",
-			});
-			expect(browserClaim.status).toBe(303);
+			await assertLiveCodeRedirectsIdempotently(
+				firstClaim.user_code,
+				projectId,
+				databaseUrl,
+			);
 
 			const revokedToken = await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
 				method: "POST",
@@ -654,9 +693,9 @@ describe("local Claimable Neon service", () => {
 				"claim_in_progress",
 			);
 
-			const sql = postgres(databaseUrl, { prepare: false });
+			const expireSql = postgres(databaseUrl, { prepare: false });
 			try {
-				await sql`
+				await expireSql`
 					update claim_attempts
 					set expires_at = now() - interval '1 second'
 					where state = 'pending'
@@ -664,7 +703,7 @@ describe("local Claimable Neon service", () => {
 							select id from registrations where neon_project_id = ${projectId}
 						)`;
 			} finally {
-				await sql.end({ timeout: 5 });
+				await expireSql.end({ timeout: 5 });
 			}
 
 			const reissued = claimCodeResponse.parse(
@@ -677,20 +716,10 @@ describe("local Claimable Neon service", () => {
 			);
 			expect(reissued.user_code).not.toBe(firstClaim.user_code);
 
-			const expiredCode = await fetch(`${baseUrl}/claim`, {
-				method: "POST",
-				headers: { "content-type": "application/x-www-form-urlencoded" },
-				body: new URLSearchParams({ user_code: firstClaim.user_code }),
-				redirect: "manual",
-			});
+			const expiredCode = await postClaimCode(firstClaim.user_code);
 			expect(expiredCode.ok).toBe(false);
 
-			const replacementBrowser = await fetch(`${baseUrl}/claim`, {
-				method: "POST",
-				headers: { "content-type": "application/x-www-form-urlencoded" },
-				body: new URLSearchParams({ user_code: reissued.user_code }),
-				redirect: "manual",
-			});
+			const replacementBrowser = await postClaimCode(reissued.user_code);
 			expect(replacementBrowser.status).toBe(303);
 			const location = replacementBrowser.headers.get("location");
 			if (!location) {

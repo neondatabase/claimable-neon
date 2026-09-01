@@ -637,11 +637,17 @@ export const startClaimTransfer = async (
 		expiresAt: Date;
 	},
 ): Promise<void> => {
-	await sql`
+	const updated = await sql`
 		update claim_attempts
 		set transfer_request_id = ${input.transferRequestId},
 			expires_at = ${input.expiresAt}
 		where id = ${input.attemptId} and state = 'pending'`;
+	if (updated.count !== 1) {
+		throw new ServiceError(
+			"internal_error",
+			"Claim attempt is no longer pending; the transfer request was not recorded.",
+		);
+	}
 };
 
 export const setClaimAttemptState = async (
