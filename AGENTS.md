@@ -87,7 +87,9 @@ at the org. Open a PR only when asked.
 Function env for `neon deploy --env .env.prod`. Keep both files up to date: when a declared
 Function env key is added, rotated, or removed, put the production value in `.env.prod` and the
 local value in `.env.local`. Do not copy local `NEON_API_KEY_KIND=user_local` or Testing-org keys
-into `.env.prod`. `.env.prod` must stay complete for every key in `neon.ts`.
+into `.env.prod`. `.env.prod` must stay complete for every key in `neon.ts`. `neon deploy` also
+pulls the Function project's `DATABASE_URL` into `.env.local`; restore Testing project
+`plain-heart-77775140` credentials after a production deploy if this file is the local-dev env.
 
 ## Non-negotiable rules
 

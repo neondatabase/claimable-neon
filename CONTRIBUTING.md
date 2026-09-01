@@ -169,7 +169,9 @@ neon deploy --profile dbx --env .env.prod \
 `.env.local` is local development (`neon env pull`, `bun run dev`). `.env.prod` is production
 Function env. Keep both files up to date: when a declared Function env key is added, rotated, or
 removed, put the production value in `.env.prod` and the local value in `.env.local`. Do not copy
-local `NEON_API_KEY_KIND=user_local` or Testing-org keys into `.env.prod`.
+local `NEON_API_KEY_KIND=user_local` or Testing-org keys into `.env.prod`. `neon deploy` also
+pulls the Function project's `DATABASE_URL` into `.env.local`; restore Testing project
+`plain-heart-77775140` after a production deploy if this file is the local-dev env.
 
 `neon deploy --env <file>` loads that file into `process.env` before evaluating `neon.ts` and
 uploads those values as Function env. An unset declared key is `undefined` and `defineConfig`
