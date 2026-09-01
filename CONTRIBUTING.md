@@ -158,13 +158,15 @@ tests for the functional core and real infrastructure for I/O behavior.
 The live Function is project `soft-morning-58679842`, branch `main`, slug `claimable`,
 profile `dbx`.
 
-Preferred full deploy: keep a gitignored env file complete for every key in `neon.ts`, then:
+Preferred full deploy: keep `.env.prod` complete for every key in `neon.ts`, then:
 
 ```bash
-neon deploy --profile dbx --env .env.deploy \
+neon deploy --profile dbx --env .env.prod \
   --project-id soft-morning-58679842 \
   --branch main
 ```
+
+`.env.local` is local testing (`neon env pull` writes branch credentials there). Do not copy local `NEON_API_KEY_KIND=user_local` or Testing-org keys into `.env.prod`.
 
 `neon deploy --env <file>` loads that file into `process.env` before evaluating `neon.ts` and
 uploads those values as Function env. An unset declared key is `undefined` and `defineConfig`
