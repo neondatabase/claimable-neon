@@ -83,6 +83,12 @@ Work on `main`. Commit, push, no pull request. This overrides the global PR defa
 `AGENTS.md`. The service is not launched; there is no review gate and GitHub Actions are disabled
 at the org. Open a PR only when asked.
 
+`.env.local` is local development (`neon env pull`, `bun run dev`). `.env.prod` is production
+Function env for `neon deploy --env .env.prod`. Keep both files up to date: when a declared
+Function env key is added, rotated, or removed, put the production value in `.env.prod` and the
+local value in `.env.local`. Do not copy local `NEON_API_KEY_KIND=user_local` or Testing-org keys
+into `.env.prod`. `.env.prod` must stay complete for every key in `neon.ts`.
+
 ## Non-negotiable rules
 
 **This service talks to production Neon.** There is no staging control plane. Provisioning creates
