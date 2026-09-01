@@ -181,26 +181,26 @@ const beginClaimTransfer = async (
 	dependencies: AppDependencies,
 	registration: Registration,
 	attempt: ClaimAttempt,
-): Promise<string> => {
-	let transferRequestId = attempt.transferRequestId;
+): Promise<{ transferRequestId: string; prepared: boolean }> => {
 	try {
-		if (!transferRequestId) {
-			const transfer = await createProjectTransferRequest(
-				dependencies.orgClient,
-				registration.neonProjectId,
-				dependencies.config.claimAttemptTtlSeconds,
-			);
-			transferRequestId = transfer.id;
-			await startClaimTransfer(dependencies.sql, {
-				attemptId: attempt.id,
-				transferRequestId,
-				expiresAt: transfer.expiresAt,
-			});
+		// Overlapping role resets fail the snapshot check and leave compute disabled.
+		if (attempt.transferRequestId) {
+			return { transferRequestId: attempt.transferRequestId, prepared: false };
 		}
 		await freezeIssuance(dependencies.sql, registration.id);
 		await setClaimState(dependencies.sql, registration.id, "pending");
 		await prepareClaimTransfer(dependencies, registration);
-		return transferRequestId;
+		const transfer = await createProjectTransferRequest(
+			dependencies.orgClient,
+			registration.neonProjectId,
+			dependencies.config.claimAttemptTtlSeconds,
+		);
+		await startClaimTransfer(dependencies.sql, {
+			attemptId: attempt.id,
+			transferRequestId: transfer.id,
+			expiresAt: transfer.expiresAt,
+		});
+		return { transferRequestId: transfer.id, prepared: true };
 	} catch (error) {
 		const mapped = missingClaimableProjectError(error, registration);
 		if (!mapped) throw error;
@@ -1457,19 +1457,21 @@ export const createApp = (dependencies: AppDependencies) => {
 				lockedSql,
 				registration.id,
 			);
-			const transferRequestId = await beginClaimTransfer(
+			const transfer = await beginClaimTransfer(
 				lockedDependencies,
 				currentRegistration,
 				currentAttempt,
 			);
-			await emitUsage(lockedDependencies, "claim_started", {
-				source: currentRegistration.source,
-				registrationId: currentRegistration.id,
-				projectId: currentRegistration.neonProjectId,
-			});
+			if (transfer.prepared) {
+				await emitUsage(lockedDependencies, "claim_started", {
+					source: currentRegistration.source,
+					registrationId: currentRegistration.id,
+					projectId: currentRegistration.neonProjectId,
+				});
+			}
 			const destination = new URL(lockedDependencies.config.consoleClaimUrl);
 			destination.searchParams.set("p", currentRegistration.neonProjectId);
-			destination.searchParams.set("tr", transferRequestId);
+			destination.searchParams.set("tr", transfer.transferRequestId);
 			return context.redirect(destination.toString(), 303);
 		});
 	});

@@ -90,6 +90,7 @@ not used here.
 service revokes the project-scoped API key, disables the compute to terminate and block database
 sessions, resets every password-authenticated role, re-enables the compute, and revokes access
 tokens. Auth and the Data API stay enabled. It then redirects the human to accept the transfer.
+A later submit of the same live code reuses that transfer URL and does not rotate again.
 The identity assertion remains valid only for claim-status token exchange. After the project
 leaves the source organization, the first status poll revokes the assertion and records
 `reconciled`; the retained status token can repeat that terminal read if the first response is
