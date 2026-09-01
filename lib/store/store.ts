@@ -334,6 +334,17 @@ export const storeServiceCredential = async (
 		set ciphertext = excluded.ciphertext, nonce = excluded.nonce`;
 };
 
+export const deleteServiceCredential = async (
+	sql: Sql,
+	registrationId: string,
+	capability: ServiceCredentialCapability,
+): Promise<void> => {
+	await sql`
+		delete from service_credentials
+		where registration_id = ${registrationId}
+		  and capability = ${capability}`;
+};
+
 export const updateRegistrationScopes = async (
 	sql: Sql,
 	registrationId: string,

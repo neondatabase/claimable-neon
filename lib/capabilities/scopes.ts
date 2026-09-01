@@ -73,6 +73,10 @@ export const withGrantedCapability = (
 ): Scope[] =>
 	withGrantableConfigureScopes([...scopes, ...scopesForCapabilities([capability])]);
 
+/** Configure stays so a later deploy can re-enable without a new identity. */
+export const withoutDataApiQuery = (scopes: readonly Scope[]): Scope[] =>
+	withGrantableConfigureScopes(scopes.filter((scope) => scope !== "data_api.query"));
+
 /** Neon's vocabulary for a branch credential — colon-delimited, and a closed set upstream. */
 export const NEON_CREDENTIAL_SCOPES = [
 	"storage:read",

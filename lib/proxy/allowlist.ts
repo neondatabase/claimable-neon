@@ -1,14 +1,6 @@
 /**
- * The Management API allowlist.
- *
- * This is the security boundary. A caller presents an agent token; this decides which Neon
- * Management API operation it may reach, with which body, on which project.
- *
- * Matching on method and path alone would not be sufficient, and the temptation to do so is the
- * main risk here. `PATCH /projects/{p}/endpoints/{e}` accepts branch reassignment, provisioner
- * changes, and passwordless access alongside the autoscaling fields; `POST …/data-api/{db}`
- * accepts a caller-supplied `jwks_url` that Neon's backend will fetch. So every operation
- * carries an explicit field allowlist, and unknown fields are refused rather than forwarded.
+ * Management API operations accept unrelated fields under the same path, so each operation needs
+ * an explicit body schema. Sharing the Data API schema keeps identity and proxy validation aligned.
  */
 
 import { z } from "zod";
@@ -16,6 +8,7 @@ import { z } from "zod";
 import type { Capability } from "../capabilities/capabilities.ts";
 import type { Scope } from "../capabilities/scopes.ts";
 import { ServiceError } from "../errors/errors.ts";
+import { dataApiCreateBody, dataApiUpdateBody } from "./data-api-body.ts";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
@@ -68,16 +61,8 @@ const authCreate = strict({
 	database_name: z.string().min(1).max(63).optional(),
 });
 
-const dataApiCreate = strict({
-	// `jwks_url`, `provider_name`, `jwt_audience`, and `settings` are withheld. An arbitrary URL
-	// fetched by Neon's backend on an anonymous caller's request is an SSRF question we have not
-	// answered, and `add_default_grants` decides which tables become publicly queryable.
-	auth_provider: z.enum(["neon_auth"]).optional(),
-});
-
-const dataApiUpdate = strict({
-	auth_provider: z.enum(["neon_auth"]).optional(),
-});
+const dataApiCreate = dataApiCreateBody;
+const dataApiUpdate = dataApiUpdateBody;
 
 /**
  * The operations `neon deploy`, `neon status`, and `neon env pull` actually reach, verified
@@ -224,6 +209,13 @@ export const OPERATIONS: readonly Operation[] = [
 		description: "Update the Data API",
 	},
 	{
+		method: "DELETE",
+		pattern: "/projects/:projectId/branches/:branchId/data-api/:databaseName",
+		scope: "data_api.configure",
+		capability: "data_api",
+		description: "Disable the Data API",
+	},
+	{
 		method: "POST",
 		pattern: "/projects/:projectId/branches/:branchId/buckets",
 		scope: "storage.write",
@@ -252,9 +244,9 @@ export type MatchedOperation = {
 
 /**
  * Neon 404 "not enabled" and 409 "already enabled" on Auth / Data API must reach the CLI as
- * those statuses. Mapping them to `upstream_error` 502 breaks `getNeonAuth` → null and
- * `enableNeonAuth` → GET-existing. Other 4xx stay wrapped: a project-key 401 is ours, not the
- * caller's.
+ * those statuses. Mapping them to `upstream_error` 502 breaks `getNeonAuth` → null,
+ * `enableNeonAuth` → GET-existing, and Data API disable retry after a failed local cleanup.
+ * Other 4xx stay wrapped: a project-key 401 is ours, not the caller's.
  */
 export const shouldRelayUpstreamStatus = (
 	operation: Pick<Operation, "method" | "pattern">,
@@ -265,6 +257,7 @@ export const shouldRelayUpstreamStatus = (
 	if (!authOrDataApi) return false;
 	if (operation.method === "GET" && status === 404) return true;
 	if (operation.method === "POST" && status === 409) return true;
+	if (operation.method === "DELETE" && status === 404) return true;
 	return false;
 };
 

@@ -5,6 +5,11 @@ import { z } from "zod";
 import type { Capability } from "../capabilities/capabilities.ts";
 import type { Config } from "../config/config.ts";
 import { ServiceError } from "../errors/errors.ts";
+import {
+	type DataApiCreateBody,
+	dataApiCreateBodyForProvisioning,
+	dataApiCreateRequestsNeonAuth,
+} from "../proxy/data-api-body.ts";
 import type { NeonClient } from "./client.ts";
 
 const operation = z.object({
@@ -188,7 +193,7 @@ export type MintedProjectKey = {
 };
 
 export type ProvisionedServiceCredentials = {
-	auth?: z.infer<typeof authCredential>;
+	auth?: z.infer<typeof authCredential> | z.infer<typeof authCredentialPublic>;
 	data_api?: z.infer<typeof dataApiCredential>;
 };
 
@@ -283,6 +288,7 @@ export const configureCapabilities = async (
 	client: NeonClient,
 	project: ProvisionedProject,
 	capabilities: readonly Capability[],
+	dataApiBody?: DataApiCreateBody,
 ): Promise<ProvisionedServiceCredentials> => {
 	const credentials: ProvisionedServiceCredentials = {};
 	const projectPath = `/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}`;
@@ -296,11 +302,19 @@ export const configureCapabilities = async (
 	}
 
 	if (capabilities.includes("data_api")) {
+		const body = dataApiCreateBodyForProvisioning(
+			capabilities.includes("auth"),
+			dataApiBody,
+		);
 		const response = await client.post(
 			`${projectPath}/data-api/${pathSegment(project.databaseName)}`,
-			capabilities.includes("auth") ? { auth_provider: "neon_auth" } : {},
+			body,
 		);
 		credentials.data_api = parseDataApiServiceCredential(response.data);
+		if (dataApiCreateRequestsNeonAuth(body) && credentials.auth === undefined) {
+			const existing = await client.get(`${projectPath}/auth`);
+			credentials.auth = parseAuthServiceCredentialPublic(existing.data);
+		}
 	}
 
 	return credentials;

@@ -234,7 +234,8 @@ keeps returning the terminal \`reconciled\` state when retried with the retained
 They stay off unless requested at create or enabled later. On the unclaimed project, \`neon.ts\`
 plus \`neon deploy\` talks to this origin and enables them through the scoped proxy. After
 claim, the same config talks to Neon directly. Data API with the default auth provider requires
-Auth:
+Auth. Pass \`data_api\` on identity when create must set the provider; Neon cannot change JWKS
+with PATCH, so a later deploy cannot bolt it on.
 
 \`\`\`typescript
 import { defineConfig } from "@neon/config/v1";
@@ -249,7 +250,7 @@ export default defineConfig({
 neon deploy
 \`\`\`
 
-An external JWKS is not accepted on the unclaimed project. After claim:
+An external JWKS is accepted on the unclaimed project:
 
 \`\`\`typescript
 dataApi: {
@@ -257,6 +258,9 @@ dataApi: {
   jwksUrl: "https://example.com/.well-known/jwks.json",
 }
 \`\`\`
+
+\`dataApi: false\` disables through \`DELETE …/data-api/{database}\`. Omit \`dataApi\` to leave an
+existing Data API alone.
 
 ## Delete or revoke
 

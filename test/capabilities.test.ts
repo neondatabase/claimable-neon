@@ -14,6 +14,7 @@ import {
 	scopesForCapabilities,
 	withGrantableConfigureScopes,
 	withGrantedCapability,
+	withoutDataApiQuery,
 } from "../lib/capabilities/scopes.ts";
 
 describe("decideCapabilities", () => {
@@ -132,6 +133,21 @@ describe("withGrantableConfigureScopes", () => {
 			"postgres.read",
 			"postgres.write",
 			"data_api.query",
+			"data_api.configure",
+			"auth.configure",
+		]);
+	});
+});
+
+describe("withoutDataApiQuery", () => {
+	it("drops data_api.query and keeps configure", () => {
+		expect(
+			withoutDataApiQuery(
+				withGrantedCapability(scopesForCapabilities(["postgres"]), "data_api"),
+			),
+		).toEqual([
+			"postgres.read",
+			"postgres.write",
 			"data_api.configure",
 			"auth.configure",
 		]);

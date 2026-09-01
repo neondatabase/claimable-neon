@@ -592,6 +592,167 @@ describe("local Claimable Neon service", () => {
 		}
 	});
 
+	it("refuses data_api configuration without the data_api capability", async () => {
+		const response = await fetch(`${baseUrl}/v1/agent/identity`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				type: "anonymous",
+				capabilities: ["postgres"],
+				data_api: { auth_provider: "neon_auth" },
+				source: "local_e2e_data_api_without_capability",
+			}),
+		});
+		expect(response.status).toBe(400);
+		expect(errorResponse.parse(await response.json()).error.code).toBe("invalid_request");
+	});
+
+	it("creates Data API from identity data_api, deletes, and recreates", async () => {
+		const jwksUrl = "https://www.googleapis.com/oauth2/v3/certs";
+		const createBody = {
+			auth_provider: "external",
+			jwks_url: jwksUrl,
+		};
+		const registrationBody = await json(
+			await fetch(`${baseUrl}/v1/agent/identity`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					type: "anonymous",
+					capabilities: ["postgres", "data_api"],
+					data_api: createBody,
+					source: "local_e2e_data_api_lifecycle",
+				}),
+			}),
+		);
+		const registration = registrationResponse.parse(registrationBody);
+		const projectId = registration.project.id;
+		const branchId = registration.project.branch_id;
+		const assertion = registration.identity_assertion;
+		let cleanupToken: string | undefined;
+		let testFailure: unknown;
+
+		const dataApiCredentials = z.object({
+			project_id: z.string().min(1),
+			branch_id: z.string().min(1),
+			database_url: z.string().min(1),
+			expires_at: z.string().datetime(),
+			services: z.object({
+				data_api: z.object({ url: z.string().url() }).optional(),
+			}),
+		});
+
+		try {
+			const issued = tokenResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/oauth2/token`, {
+						method: "POST",
+						headers: { "content-type": "application/x-www-form-urlencoded" },
+						body: new URLSearchParams({
+							grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+							assertion,
+							resource: `${baseUrl}/`,
+						}),
+					}),
+				),
+			);
+			cleanupToken = issued.access_token;
+			expect(issued.scope.split(/\s+/)).toContain("data_api.query");
+			const authorization = { authorization: `Bearer ${issued.access_token}` };
+
+			const enabledBody = await json(
+				await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+					headers: authorization,
+				}),
+			);
+			const enabled = dataApiCredentials.parse(enabledBody);
+			expect(enabled.services.data_api?.url).toMatch(/^https:\/\//);
+			expect(enabledBody).toEqual(
+				expect.objectContaining({
+					services: expect.not.objectContaining({ auth: expect.anything() }),
+				}),
+			);
+
+			const deleted = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/data-api/neondb`,
+				{ method: "DELETE", headers: authorization },
+			);
+			expect(deleted.status).toBe(200);
+
+			const gone = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/data-api/neondb`,
+				{ headers: authorization },
+			);
+			expect(gone.status).toBe(404);
+
+			const afterDelete = dataApiCredentials.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+						headers: authorization,
+					}),
+				),
+			);
+			expect(afterDelete.services.data_api).toBeUndefined();
+
+			const refreshed = tokenResponse.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/oauth2/token`, {
+						method: "POST",
+						headers: { "content-type": "application/x-www-form-urlencoded" },
+						body: new URLSearchParams({
+							grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+							assertion,
+							resource: `${baseUrl}/`,
+						}),
+					}),
+				),
+			);
+			expect(refreshed.scope.split(/\s+/)).not.toContain("data_api.query");
+			expect(refreshed.scope.split(/\s+/)).toContain("data_api.configure");
+
+			const alreadyGone = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/data-api/neondb`,
+				{ method: "DELETE", headers: authorization },
+			);
+			expect([200, 404]).toContain(alreadyGone.status);
+
+			const recreate = await fetch(
+				`${baseUrl}/v1/projects/${projectId}/branches/${branchId}/data-api/neondb`,
+				{
+					method: "POST",
+					headers: { ...authorization, "content-type": "application/json" },
+					body: JSON.stringify(createBody),
+				},
+			);
+			expect(recreate.ok).toBe(true);
+
+			const recreated = dataApiCredentials.parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}/credentials`, {
+						headers: authorization,
+					}),
+				),
+			);
+			expect(recreated.services.data_api?.url).toMatch(/^https:\/\//);
+		} catch (error) {
+			testFailure = error;
+		}
+
+		cleanupToken ??= await exchange(assertion);
+		const deleted = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${cleanupToken}` },
+		});
+		if (deleted.status !== 204) {
+			throw new Error(
+				`Cleanup failed with HTTP ${deleted.status}: ${await deleted.text()}`,
+			);
+		}
+		if (testFailure) {
+			throw testFailure;
+		}
+	});
+
 	it("mints a replacement claim code after the transfer window expires", async () => {
 		const databaseUrl = process.env.DATABASE_URL;
 		if (!databaseUrl) {

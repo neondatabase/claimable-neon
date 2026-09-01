@@ -131,6 +131,9 @@ describe("auth.md discovery", () => {
 		expect(markdown).toContain("auth: true");
 		expect(markdown).toContain('authProvider: "external"');
 		expect(markdown).toContain("unclaimed project");
+		expect(markdown).toContain("An external JWKS is accepted on the unclaimed project");
+		expect(markdown).not.toContain("An external JWKS is not accepted");
+		expect(markdown).toContain("DELETE …/data-api/{database}");
 		expect(markdown).not.toContain(
 			"You cannot add those services on the unclaimed project",
 		);
