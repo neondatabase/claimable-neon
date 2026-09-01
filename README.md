@@ -119,6 +119,8 @@ GET    /v1/projects/{id}/credentials
 POST   /v1/projects/{id}/claim         # returns verification_uri_complete + user_code
 GET    /v1/projects/{id}/claim         # poll: pending | accepted | reconciled | expired
 DELETE /v1/projects/{id}
+POST   /v1/projects/{id}/branches/{branch}/data-api/{database}
+PATCH  /v1/projects/{id}/branches/{branch}/data-api/{database}
 DELETE /v1/projects/{id}/branches/{branch}/data-api/{database}
 ```
 

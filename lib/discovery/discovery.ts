@@ -235,7 +235,35 @@ They stay off unless requested at create or enabled later. On the unclaimed proj
 plus \`neon deploy\` talks to this origin and enables them through the scoped proxy. After
 claim, the same config talks to Neon directly. Data API with the default auth provider requires
 Auth. Pass \`data_api\` on identity when create must set the provider; Neon cannot change JWKS
-with PATCH, so a later deploy cannot bolt it on.
+with PATCH, so a later deploy cannot bolt it on. Omit \`data_api\` to keep the server
+heuristic (\`neon_auth\` when Auth was granted). Sending \`data_api\` without the
+\`data_api\` capability is \`400 invalid_request\` and creates no project.
+
+\`\`\`http
+POST ${base}/v1/agent/identity
+Content-Type: application/json
+
+{"type":"anonymous","capabilities":["postgres","data_api"],"source":"your-agent","data_api":{"auth_provider":"external","jwks_url":"https://example.com/.well-known/jwks.json"}}
+\`\`\`
+
+\`\`\`http
+POST ${base}/v1/projects/<project_id>/branches/<branch_id>/data-api/<database>
+Content-Type: application/json
+Authorization: Bearer <access_token>
+
+{"auth_provider":"neon_auth"}
+\`\`\`
+
+\`\`\`http
+PATCH ${base}/v1/projects/<project_id>/branches/<branch_id>/data-api/<database>
+Content-Type: application/json
+Authorization: Bearer <access_token>
+
+{"settings":{"db_max_rows":50}}
+\`\`\`
+
+DELETE the same path returns \`200\`, including when the Data API is already gone. GET then
+returns \`404\`.
 
 \`\`\`typescript
 import { defineConfig } from "@neon/config/v1";
