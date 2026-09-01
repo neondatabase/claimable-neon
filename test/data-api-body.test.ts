@@ -31,6 +31,11 @@ describe("jwksUrlRefusal", () => {
 		expect(jwksUrlRefusal("https://intranet/jwks")).toMatch(/registered name/);
 		expect(jwksUrlRefusal("https://foo.local/jwks")).toMatch(/local/);
 		expect(jwksUrlRefusal("https://foo.internal/jwks")).toMatch(/internal/);
+		expect(jwksUrlRefusal("https://foo.test/jwks")).toMatch(/test/);
+		expect(jwksUrlRefusal("https://foo.invalid/jwks")).toMatch(/invalid/);
+		expect(jwksUrlRefusal("https://foo.example/jwks")).toMatch(/example/);
+		expect(jwksUrlRefusal("https://foo.onion/jwks")).toMatch(/onion/);
+		expect(jwksUrlRefusal("https://foo.home.arpa/jwks")).toMatch(/home\.arpa/);
 		expect(jwksUrlRefusal("not a url")).toMatch(/valid URL/);
 	});
 });

@@ -3,7 +3,16 @@ import { z } from "zod";
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-const SPECIAL_USE_HOST_SUFFIXES = [".local", ".internal", ".localhost"] as const;
+const SPECIAL_USE_HOST_SUFFIXES = [
+	".local",
+	".internal",
+	".localhost",
+	".test",
+	".invalid",
+	".example",
+	".onion",
+	".home.arpa",
+] as const;
 
 export const dataApiSettingsBody = strict({
 	db_aggregates_enabled: z.boolean().optional(),
