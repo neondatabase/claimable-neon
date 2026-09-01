@@ -99,14 +99,18 @@ bun run test
 ```
 
 Create `.env.local` from the checked-in template. Generate the signing and encryption keys, then
-fill in the remaining secrets:
+fill in the remaining secrets. This file is the local app env. Never symlink it to another
+checkout.
 
 ```bash
 cp .env.example .env.local
 bun run secrets:generate >> .env.local
+neon link --org-id org-old-flower-82714815 --project-id plain-heart-77775140 -y --no-env-pull
+neon env pull --file .env.local -e DATABASE_URL -e DATABASE_URL_UNPOOLED
 ```
 
-- `DATABASE_URL` is a dedicated database for this service's state.
+- `DATABASE_URL` is Testing project `plain-heart-77775140` (`claimable-neon-local-state`). Do not
+  delete it. Do not point `.neon` at the Function project `soft-morning-58679842`.
 - `NEON_API_KEY` is a newly created, revocable personal API key. Neon's endpoint for minting
   project-scoped keys rejects organization API keys. Use it only for that mint.
 - `NEON_ORG_API_KEY` is an organization API key for the same `NEON_ORG_ID`. Create, delete,
@@ -158,20 +162,19 @@ tests for the functional core and real infrastructure for I/O behavior.
 The live Function is project `soft-morning-58679842`, branch `main`, slug `claimable`,
 profile `dbx`.
 
-Preferred full deploy: keep `.env.prod` complete for every key in `neon.ts`, then:
+Preferred full deploy from a checkout that already has a real `.env.prod` (never a symlink):
 
 ```bash
-neon deploy --profile dbx --env .env.prod \
+SENTRY_RELEASE=$(git rev-parse --short HEAD) neon deploy --profile dbx --env .env.prod \
   --project-id soft-morning-58679842 \
-  --branch main
+  --branch main \
+  --no-env-pull
 ```
 
-`.env.local` is local development (`neon env pull`, `bun run dev`). `.env.prod` is production
-Function env. Keep both files up to date: when a declared Function env key is added, rotated, or
-removed, put the production value in `.env.prod` and the local value in `.env.local`. Do not copy
-local `NEON_API_KEY_KIND=user_local` or Testing-org keys into `.env.prod`. `neon deploy` also
-pulls the Function project's `DATABASE_URL` into `.env.local`; restore Testing project
-`plain-heart-77775140` after a production deploy if this file is the local-dev env.
+`.env.prod` is Function env. Keep it complete for every key in `neon.ts` except `SENTRY_RELEASE`,
+which is the SHA of this apply and must be set on the command. `--env` does not override an
+existing shell var. Do not copy local `NEON_API_KEY_KIND=user_local` or Testing-org keys into
+`.env.prod`. `--no-env-pull` keeps the Function project's `DATABASE_URL` out of `.env.local`.
 
 `neon deploy --env <file>` loads that file into `process.env` before evaluating `neon.ts` and
 uploads those values as Function env. An unset declared key is `undefined` and `defineConfig`

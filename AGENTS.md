@@ -83,13 +83,27 @@ Work on `main`. Commit, push, no pull request. This overrides the global PR defa
 `AGENTS.md`. The service is not launched; there is no review gate and GitHub Actions are disabled
 at the org. Open a PR only when asked.
 
-`.env.local` is local development (`neon env pull`, `bun run dev`). `.env.prod` is production
-Function env for `neon deploy --env .env.prod`. Keep both files up to date: when a declared
-Function env key is added, rotated, or removed, put the production value in `.env.prod` and the
-local value in `.env.local`. Do not copy local `NEON_API_KEY_KIND=user_local` or Testing-org keys
-into `.env.prod`. `.env.prod` must stay complete for every key in `neon.ts`. `neon deploy` also
-pulls the Function project's `DATABASE_URL` into `.env.local`; restore Testing project
-`plain-heart-77775140` credentials after a production deploy if this file is the local-dev env.
+Two Neon projects, two env files, no symlinks.
+
+`.env.local` is the local app (`bun run dev`, migrate, `test:e2e`). Testing org
+`org-old-flower-82714815`, state DB project `plain-heart-77775140`. `.neon` links that
+project (personal `neon`, not `--profile dbx`). `neon env pull --file .env.local` writes
+`DATABASE_URL` here.
+
+`.env.prod` is Function apply only. Holding-org keys and Function secrets. No `DATABASE_URL`.
+Keep it complete for every key in `neon.ts` except `SENTRY_RELEASE`. When a declared Function
+key is added, rotated, or removed, update `.env.prod` (prod value) and `.env.local` (local
+value). Do not copy `NEON_API_KEY_KIND=user_local` or Testing-org keys into `.env.prod`.
+
+```bash
+SENTRY_RELEASE=$(git rev-parse --short HEAD) neon deploy --profile dbx --env .env.prod \
+  --project-id soft-morning-58679842 --branch main --no-env-pull
+```
+
+`--no-env-pull` is required: default pull writes the Function project's `DATABASE_URL` into
+`.env.local`. `SENTRY_RELEASE` is the SHA of that apply; set it on the command, not in
+`.env.prod`. `--env` does not override an existing shell var. An unset `SENTRY_RELEASE`
+makes `defineConfig` throw.
 
 ## Non-negotiable rules
 

@@ -183,7 +183,9 @@ For local service testing:
 ```bash
 cp .env.example .env.local
 bun run secrets:generate >> .env.local
-# Fill DATABASE_URL, NEON_API_KEY, and NEON_ORG_API_KEY in .env.local.
+neon link --org-id org-old-flower-82714815 --project-id plain-heart-77775140 -y --no-env-pull
+neon env pull --file .env.local -e DATABASE_URL -e DATABASE_URL_UNPOOLED
+# Fill NEON_API_KEY and NEON_ORG_API_KEY in .env.local. Never symlink this file.
 bun run migrate
 bun run dev
 ```
