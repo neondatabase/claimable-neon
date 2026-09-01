@@ -158,21 +158,20 @@ tests for the functional core and real infrastructure for I/O behavior.
 The live Function is project `soft-morning-58679842`, branch `main`, slug `claimable`,
 profile `dbx`.
 
-Ship code without touching env:
+Preferred full deploy: keep a gitignored env file complete for every key in `neon.ts`, then:
 
 ```bash
-neon functions deploy claimable \
-  --profile dbx \
-  --src src/function.ts \
+neon deploy --profile dbx --env .env.deploy \
   --project-id soft-morning-58679842 \
-  --branch main \
-  --wait
+  --branch main
 ```
 
-Omitting `--env` keeps the Function's existing environment. `neon functions deploy --env KEY=VALUE`
-merges that key (repeatable; not an env-file path). `.env.deploy` is a local record of live
-secrets, including `SENTRY_DSN`; pass those values as `--env KEY=VALUE`. On each ship, merge a
-new release id:
+`neon deploy --env <file>` loads that file into `process.env` before evaluating `neon.ts` and
+uploads those values as Function env. An unset declared key is `undefined` and `defineConfig`
+throws. Omit a key from `neon.ts` if you do not want to write it. Never coerce a missing
+`process.env` value to an empty string: that uploads `""` and deletes the live key.
+
+For a targeted env update without applying `neon.ts`:
 
 ```bash
 neon functions deploy claimable \
@@ -184,10 +183,8 @@ neon functions deploy claimable \
   --wait
 ```
 
-`neon deploy` (config apply) sends the `neon.ts` `env` object as a **replacement** map.
-`process.env.X ?? ""` becomes empty strings when the shell has no secrets, the Function fails
-to load, and `https://claimable.neon.tech` returns `function_load_failed`. Do not run
-`neon deploy` against this project unless `--env` points at a complete production env file.
+Omitting `--env` on `neon functions deploy` keeps the Function's existing environment.
+`--env KEY=VALUE` merges that key (repeatable; not an env-file path).
 
 ## Before committing
 
