@@ -77,7 +77,8 @@ Register, then exchange the assertion for an access token:
 
 ```http
 POST /v1/agent/identity
-{ "type": "anonymous", "capabilities": ["postgres", "data_api"] }
+{ "type": "anonymous", "capabilities": ["postgres", "data_api"],
+  "data_api": { "auth_provider": "external", "jwks_url": "https://idp.example.com/.well-known/jwks.json" } }
 ```
 
 ```json
@@ -118,6 +119,9 @@ GET    /v1/projects/{id}/credentials
 POST   /v1/projects/{id}/claim         # returns verification_uri_complete + user_code
 GET    /v1/projects/{id}/claim         # poll: pending | accepted | reconciled | expired
 DELETE /v1/projects/{id}
+POST   /v1/projects/{id}/branches/{branch}/data-api/{database}
+PATCH  /v1/projects/{id}/branches/{branch}/data-api/{database}
+DELETE /v1/projects/{id}/branches/{branch}/data-api/{database}
 ```
 
 Only `reconciled` means the claim finished. Pre-claim database passwords, the project key, and

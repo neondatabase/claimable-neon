@@ -106,7 +106,7 @@ https://neon.com/auth.md and use REST. auth.md is the field authority.
 POST /v1/agent/identity
 POST /v1/oauth2/token
 GET  /v1/projects/{id}/credentials
-GET|PATCH|POST /v1/projects/{id}/…     # allowlisted Management API
+GET|PATCH|POST|DELETE /v1/projects/{id}/…     # allowlisted Management API
 POST /v1/projects/{id}/claim
 GET  /v1/projects/{id}/claim           # poll until reconciled
 DELETE /v1/projects/{id}

@@ -93,7 +93,8 @@ against an organization other than the documented test org, and always clean up.
 `lib/proxy/allowlist.ts` carries an explicit request schema with unknown fields rejected. When
 adding an operation, enumerate the fields you intend to permit; never widen a schema to make a
 client work. `PATCH /endpoints/{id}` accepting `branch_id` or `POST …/data-api` accepting
-`jwks_url` are the shapes of mistake that matter here.
+`add_default_grants` are the shapes of mistake that matter here. Data API `jwks_url` is allowed
+only through `dataApiCreateBody` (https, no IPs, no localhost or special-use names).
 
 **Fail closed on anything unrecognised.** An unknown scope, an unmapped upstream credential scope,
 an unknown capability, an unknown request field: refuse it. If Neon adds a fifth `CredentialScope`,

@@ -23,7 +23,7 @@ target shape.
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts`; live `POST https://track.neon.tech/v1/track` 202 after analytics-events prod 2026-08-28 |
-| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs (including Data API `neon_auth` recording Auth from GET `/auth`), and cleanup | `lib/neon/`, `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
+| Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs (including Data API `neon_auth` recording Auth from GET `/auth`), identity `data_api` create body, Data API DELETE bookkeeping, and cleanup | `lib/neon/`, `lib/app/app.ts`, `lib/proxy/data-api-body.ts` | `test/e2e/local-service.test.ts`, `test/data-api-body.test.ts`, `test/allowlist.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
 | Sentry error monitoring on the Function (`src/function.ts` imports `instrument.ts`; `src/local.ts` does not) | `src/instrument.ts`, `src/function.ts`, `lib/app/app.ts` | `test/errors.test.ts`; captures `internal_error`, transport `upstream_error`, and upstream 5xx. Tags `upstream_status` when Neon returned one. 4xx `ServiceError`s are not issues. |
@@ -96,6 +96,13 @@ leaves the source organization, the first status poll revokes the assertion and 
 `reconciled`; the retained status token can repeat that terminal read if the first response is
 lost.
 
+**Pre-claim Data API accepts the neon.ts create surface.** Identity may send `data_api` with
+`auth_provider` `neon_auth` or `external`, plus `jwks_url` / `provider_name` / `jwt_audience` /
+`settings`. Claimable validates `jwks_url` (https, no IPs, no localhost or special-use names);
+Neon still fetches the URL. `add_default_grants` and `skip_auth_schema` are refused. DELETE
+drops the stored Data API credential and `data_api.query` when branch and database match the
+registration. Access tokens are not revoked.
+
 ## Known open questions
 
 These are unresolved and each one changes the design if it goes the wrong way.
@@ -103,9 +110,6 @@ These are unresolved and each one changes the design if it goes the wrong way.
 **Whether the default database role can create further login roles.** If it can, rotating that
 role's password at claim time is not sufficient. The pre-claim holder can leave a second role
 behind and keep access after the claim.
-
-**Whether Neon's Data API constrains the `jwks_url` it fetches.** The allowlist withholds the
-field for now, which is the safe default but also blocks a legitimate use.
 
 **Neon Object Storage has no quota mechanism available to this service.** `ProjectQuota` covers
 Lakebase Postgres resources, not Object Storage, and the S3 data plane bypasses this service.

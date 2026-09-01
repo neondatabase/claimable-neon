@@ -14,6 +14,7 @@ import {
 	scopesForCapabilities,
 	withGrantableConfigureScopes,
 	withGrantedCapability,
+	withoutDataApiQuery,
 } from "../capabilities/scopes.ts";
 import { generateClaimCode, hashClaimCode, normalizeClaimCode } from "../claims/codes.ts";
 import { claimCodeIssuance } from "../claims/issuance.ts";
@@ -55,6 +56,10 @@ import {
 	shouldRelayUpstreamStatus,
 } from "../proxy/allowlist.ts";
 import {
+	dataApiCreateBody,
+	dataApiCreateRequestsNeonAuth,
+} from "../proxy/data-api-body.ts";
+import {
 	type ClaimAttempt,
 	type Registration,
 	type Sql,
@@ -62,6 +67,7 @@ import {
 	createClaimAttempt,
 	createRegistration,
 	deleteRegistration,
+	deleteServiceCredential,
 	findPendingClaimByCode,
 	findRegistration,
 	freezeIssuance,
@@ -102,8 +108,23 @@ const identityRequest = z
 		type: z.literal("anonymous"),
 		capabilities: z.array(z.string().min(1)).max(20).default([]),
 		source: z.string().min(1).max(100).default("raw_api"),
+		data_api: dataApiCreateBody.optional(),
 	})
 	.strict();
+
+const dataApiBodyForIdentity = (
+	request: z.infer<typeof identityRequest>,
+	capabilities: ReturnType<typeof grantedCapabilities>,
+): z.infer<typeof dataApiCreateBody> | undefined => {
+	if (request.data_api === undefined) return undefined;
+	if (!capabilities.includes("data_api")) {
+		throw new ServiceError(
+			"invalid_request",
+			"data_api configuration requires the data_api capability.",
+		);
+	}
+	return request.data_api;
+};
 
 const tokenRequest = z.object({
 	grant_type: z.literal(JWT_BEARER_GRANT),
@@ -821,6 +842,7 @@ const requestProxiedOperation = async (
 				response.data,
 				body,
 			);
+			await persistDisabledDataApi(dependencies, registration, matched);
 		}
 		return response;
 	} catch (error) {
@@ -840,16 +862,13 @@ const requestProxiedOperation = async (
 					body,
 				);
 			}
+			if (error.options.upstreamStatus === 404) {
+				await persistDisabledDataApi(dependencies, registration, matched);
+			}
 			return relayedUpstreamResponse(error);
 		}
 		throw error;
 	}
-};
-
-const dataApiRequestedNeonAuth = (body: unknown): boolean => {
-	if (typeof body !== "object" || body === null) return false;
-	if (!("auth_provider" in body)) return false;
-	return body.auth_provider === "neon_auth";
 };
 
 const persistServiceCredential = async (
@@ -931,9 +950,35 @@ const persistEnabledDataApi = async (
 		);
 	}
 	// The CLI may only GET the Auth service created as a Data API side effect.
-	if (dataApiRequestedNeonAuth(body) && !has("auth")) {
+	const parsedBody = dataApiCreateBody.safeParse(body);
+	if (
+		parsedBody.success &&
+		dataApiCreateRequestsNeonAuth(parsedBody.data) &&
+		!has("auth")
+	) {
 		await persistAuthFromExisting(dependencies, registration, client, scopes);
 	}
+};
+
+const persistDisabledDataApi = async (
+	dependencies: AppDependencies,
+	registration: Registration,
+	matched: MatchedOperation,
+): Promise<void> => {
+	if (matched.operation.method !== "DELETE") return;
+	if (matched.operation.capability !== "data_api") return;
+	if (
+		matched.params.branchId !== registration.neonBranchId ||
+		matched.params.databaseName !== registration.databaseName
+	) {
+		return;
+	}
+	await deleteServiceCredential(dependencies.sql, registration.id, "data_api");
+	await updateRegistrationScopes(
+		dependencies.sql,
+		registration.id,
+		withoutDataApiQuery(registration.scopes),
+	);
 };
 
 const persistEnabledService = async (
@@ -1129,6 +1174,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		);
 		const decisions = decideCapabilities(request.capabilities);
 		const capabilities = grantedCapabilities(decisions);
+		const dataApiBody = dataApiBodyForIdentity(request, capabilities);
 		const scopes = withGrantableConfigureScopes(scopesForCapabilities(capabilities));
 		const registrationId = `reg_${randomUUID()}`;
 		const expiresAt = new Date(Date.now() + dependencies.config.projectTtlSeconds * 1000);
@@ -1159,6 +1205,7 @@ export const createApp = (dependencies: AppDependencies) => {
 				projectScopedClient,
 				project,
 				capabilities,
+				dataApiBody,
 			);
 			const assertion = await mintAssertion(dependencies.signingKey, {
 				issuer: dependencies.config.issuer,

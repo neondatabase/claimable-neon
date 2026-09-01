@@ -145,6 +145,15 @@ describe("shouldRelayUpstreamStatus", () => {
 				409,
 			),
 		).toBe(true);
+		expect(
+			shouldRelayUpstreamStatus(
+				{
+					method: "DELETE",
+					pattern: "/projects/:projectId/branches/:branchId/data-api/:databaseName",
+				},
+				404,
+			),
+		).toBe(true);
 	});
 
 	it("does not relay other statuses or routes", () => {
@@ -161,6 +170,15 @@ describe("shouldRelayUpstreamStatus", () => {
 			shouldRelayUpstreamStatus(
 				{ method: "POST", pattern: "/projects/:projectId/branches/:branchId/auth" },
 				404,
+			),
+		).toBe(false);
+		expect(
+			shouldRelayUpstreamStatus(
+				{
+					method: "DELETE",
+					pattern: "/projects/:projectId/branches/:branchId/data-api/:databaseName",
+				},
+				409,
 			),
 		).toBe(false);
 	});
@@ -218,14 +236,54 @@ describe("request body validation", () => {
 		);
 	});
 
-	it("refuses a caller-supplied jwks_url on the Data API", () => {
+	it("accepts neon.ts Data API create fields and refuses add_default_grants", () => {
 		const schema = bodyFor(
 			"POST",
 			"/projects/:projectId/branches/:branchId/data-api/:databaseName",
 		);
+		expect(schema?.safeParse({ auth_provider: "neon_auth" }).success).toBe(true);
+		expect(
+			schema?.safeParse({
+				auth_provider: "external",
+				jwks_url: "https://idp.example.com/.well-known/jwks.json",
+			}).success,
+		).toBe(true);
 		expect(
 			schema?.safeParse({ jwks_url: "http://169.254.169.254/latest/meta-data/" }).success,
 		).toBe(false);
+		expect(
+			schema?.safeParse({
+				auth_provider: "neon_auth",
+				add_default_grants: true,
+			}).success,
+		).toBe(false);
+	});
+
+	it("accepts settings-only Data API updates", () => {
+		const schema = bodyFor(
+			"PATCH",
+			"/projects/:projectId/branches/:branchId/data-api/:databaseName",
+		);
+		expect(schema?.safeParse({ settings: { db_max_rows: 50 } }).success).toBe(true);
+		expect(schema?.safeParse({ auth_provider: "neon_auth" }).success).toBe(false);
+		expect(
+			schema?.safeParse({
+				jwks_url: "https://idp.example.com/.well-known/jwks.json",
+			}).success,
+		).toBe(false);
+	});
+
+	it("matches Data API delete", () => {
+		const matched = matchOperation(
+			"DELETE",
+			"/projects/proj-1/branches/br-2/data-api/neondb",
+		);
+		expect(matched?.operation.scope).toBe("data_api.configure");
+		expect(matched?.params).toEqual({
+			projectId: "proj-1",
+			branchId: "br-2",
+			databaseName: "neondb",
+		});
 	});
 
 	it("does not mint or revoke branch credentials before claim", () => {
