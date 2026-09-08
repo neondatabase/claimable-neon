@@ -10,5 +10,5 @@ const sql = connect(databaseUrl);
 try {
 	await migrate(sql);
 } finally {
-	await sql.end({ timeout: 5 });
+	await sql.end();
 }

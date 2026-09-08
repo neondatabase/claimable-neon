@@ -36,6 +36,17 @@ const schema = z.object({
 
 	/** Postgres for this service's own state. Injected by Neon Functions for its branch. */
 	DATABASE_URL: z.string().min(1),
+	/**
+	 * Direct connection to the same database. Session advisory locks need a backend that
+	 * survives across queries; Neon's pooled URL is transaction-mode pgbouncer.
+	 */
+	DATABASE_URL_UNPOOLED: z
+		.string()
+		.optional()
+		.transform((value) => {
+			const trimmed = value?.trim() ?? "";
+			return trimmed.length > 0 ? trimmed : undefined;
+		}),
 
 	/** The project-scoped key endpoint rejects organization keys. */
 	NEON_API_KEY: z.string().min(1),
@@ -177,6 +188,14 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 		);
 	}
 
+	const databaseUrl = value.DATABASE_URL_UNPOOLED ?? value.DATABASE_URL;
+	if (new URL(databaseUrl).hostname.includes("-pooler")) {
+		throw new ServiceError(
+			"internal_error",
+			"The state database must use DATABASE_URL_UNPOOLED; session advisory locks do not hold through Neon's pooler.",
+		);
+	}
+
 	return {
 		publicOrigin: origin,
 		audience: `${origin}/`,
@@ -185,7 +204,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
 		skillUrl: skillUrlForIssuer(issuer),
 		authorizationServerMetadataUrl: authorizationServerMetadataUrl(issuer),
 		discoveryRedirects: new URL(issuer).origin !== new URL(origin).origin,
-		databaseUrl: value.DATABASE_URL,
+		databaseUrl,
 		neonApiKey: value.NEON_API_KEY,
 		neonApiKeyKind: value.NEON_API_KEY_KIND,
 		neonOrgApiKey: value.NEON_ORG_API_KEY,

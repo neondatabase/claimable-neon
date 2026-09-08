@@ -111,6 +111,8 @@ neon env pull --file .env.local -e DATABASE_URL -e DATABASE_URL_UNPOOLED
 
 - `DATABASE_URL` is Testing project `plain-heart-77775140` (`claimable-neon-local-state`). Do not
   delete it. Do not point `.neon` at the Function project `soft-morning-58679842`.
+- `DATABASE_URL_UNPOOLED` is the same database over a direct connection. The service uses it so
+  session advisory locks survive across queries on a reserved client.
 - `NEON_API_KEY` is a newly created, revocable personal API key. Neon's endpoint for minting
   project-scoped keys rejects organization API keys. Use it only for that mint.
 - `NEON_ORG_API_KEY` is an organization API key for the same `NEON_ORG_ID`. Create, delete,

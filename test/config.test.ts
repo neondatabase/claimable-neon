@@ -109,4 +109,25 @@ describe("service configuration", () => {
 			}),
 		).toThrow("path identifier");
 	});
+
+	it("refuses a pooled state database URL", () => {
+		expect(() =>
+			loadConfig({
+				...validEnvironment,
+				DATABASE_URL:
+					"postgresql://service:secret@ep-x-pooler.c-5.us-east-2.aws.neon.tech/claimable",
+			}),
+		).toThrow("DATABASE_URL_UNPOOLED");
+	});
+
+	it("uses DATABASE_URL_UNPOOLED when the pooled URL is also set", () => {
+		const config = loadConfig({
+			...validEnvironment,
+			DATABASE_URL:
+				"postgresql://service:secret@ep-x-pooler.c-5.us-east-2.aws.neon.tech/claimable",
+			DATABASE_URL_UNPOOLED:
+				"postgresql://service:secret@ep-x.c-5.us-east-2.aws.neon.tech/claimable",
+		});
+		expect(new URL(config.databaseUrl).hostname).toBe("ep-x.c-5.us-east-2.aws.neon.tech");
+	});
 });

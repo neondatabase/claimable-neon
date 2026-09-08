@@ -1,6 +1,21 @@
-import postgres from "postgres";
+import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+
+const openSql = (
+	connectionString: string,
+	options: { connectionTimeoutMillis?: number; max?: number } = {},
+): Pool => {
+	const pool = new Pool({
+		connectionString,
+		max: options.max ?? 4,
+		connectionTimeoutMillis: options.connectionTimeoutMillis ?? 15_000,
+	});
+	pool.on("error", (error) => {
+		console.error(error);
+	});
+	return pool;
+};
 
 const registrationResponse = z.object({
 	identity_assertion: z.string().min(1),
@@ -128,15 +143,17 @@ const assertLiveCodeRedirectsIdempotently = async (
 	expect(replay.status).toBe(303);
 	expect(replay.headers.get("location")).toBe(firstLocation);
 
-	const sql = postgres(databaseUrl, { prepare: false });
+	const sql = openSql(databaseUrl);
 	try {
-		const started = await sql<{ count: number }[]>`
-			select count(*)::int as count
+		const started = await sql.query<{ count: number }>(
+			`select count(*)::int as count
 			from usage_events
-			where project_id = ${projectId} and event = 'claim_started'`;
-		expect(started[0]?.count).toBe(1);
+			where project_id = $1 and event = 'claim_started'`,
+			[projectId],
+		);
+		expect(started.rows[0]?.count).toBe(1);
 	} finally {
-		await sql.end({ timeout: 5 });
+		await sql.end();
 	}
 };
 
@@ -243,27 +260,27 @@ describe("local Claimable Neon service", () => {
 				),
 			).toBe(true);
 
-			const sql = postgres(credentials.database_url, {
-				connect_timeout: 30,
-				prepare: false,
+			const sql = openSql(credentials.database_url, {
+				connectionTimeoutMillis: 30_000,
 			});
 			try {
-				await sql`
+				await sql.query(`
 					create table if not exists claimable_e2e (
 						id integer primary key,
 						value text not null
-					)`;
-				await sql`
+					)`);
+				await sql.query(`
 					insert into claimable_e2e (id, value)
 					values (1, 'local-service')
-					on conflict (id) do update set value = excluded.value`;
-				const [row] = await sql<{ value: string }[]>`
-					select value from claimable_e2e where id = 1`;
-				expect(row?.value).toBe("local-service");
-				await sql`grant usage on schema public to anonymous`;
-				await sql`grant select on table claimable_e2e to anonymous`;
+					on conflict (id) do update set value = excluded.value`);
+				const { rows } = await sql.query<{ value: string }>(
+					"select value from claimable_e2e where id = 1",
+				);
+				expect(rows[0]?.value).toBe("local-service");
+				await sql.query("grant usage on schema public to anonymous");
+				await sql.query("grant select on table claimable_e2e to anonymous");
 			} finally {
-				await sql.end({ timeout: 5 });
+				await sql.end();
 			}
 
 			const anonymous = anonymousTokenResponse.parse(
@@ -854,17 +871,19 @@ describe("local Claimable Neon service", () => {
 				"claim_in_progress",
 			);
 
-			const expireSql = postgres(databaseUrl, { prepare: false });
+			const expireSql = openSql(databaseUrl);
 			try {
-				await expireSql`
-					update claim_attempts
+				await expireSql.query(
+					`update claim_attempts
 					set expires_at = now() - interval '1 second'
 					where state = 'pending'
 						and registration_id = (
-							select id from registrations where neon_project_id = ${projectId}
-						)`;
+							select id from registrations where neon_project_id = $1
+						)`,
+					[projectId],
+				);
 			} finally {
-				await expireSql.end({ timeout: 5 });
+				await expireSql.end();
 			}
 
 			const reissued = claimCodeResponse.parse(
@@ -977,29 +996,36 @@ describe("local Claimable Neon service", () => {
 				"This claimable project no longer exists.",
 			);
 
-			const sql = postgres(databaseUrl, { prepare: false });
+			const sql = openSql(databaseUrl);
 			try {
-				const [row] = await sql<{ event: string; properties: { reason?: string } }[]>`
-					select event, properties
+				const { rows } = await sql.query<{
+					event: string;
+					properties: { reason?: string };
+				}>(
+					`select event, properties
 					from usage_events
-					where project_id = ${projectId}
+					where project_id = $1
 						and event = 'claim_missing_project'
 					order by created_at desc
-					limit 1`;
-				expect(row?.event).toBe("claim_missing_project");
-				expect(row?.properties.reason).toBe("deleted");
+					limit 1`,
+					[projectId],
+				);
+				expect(rows[0]?.event).toBe("claim_missing_project");
+				expect(rows[0]?.properties.reason).toBe("deleted");
 			} finally {
-				await sql.end({ timeout: 5 });
+				await sql.end();
 			}
 		} catch (error) {
 			testFailure = error;
 		}
 
-		const sql = postgres(databaseUrl, { prepare: false });
+		const sql = openSql(databaseUrl);
 		try {
-			await sql`delete from registrations where neon_project_id = ${projectId}`;
+			await sql.query("delete from registrations where neon_project_id = $1", [
+				projectId,
+			]);
 		} finally {
-			await sql.end({ timeout: 5 });
+			await sql.end();
 		}
 		if (testFailure) {
 			throw testFailure;

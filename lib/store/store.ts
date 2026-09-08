@@ -6,19 +6,45 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import postgres from "postgres";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 import type { Capability, DenialReason } from "../capabilities/capabilities.ts";
-import type { Scope } from "../capabilities/scopes.ts";
+import { type Scope, isScope } from "../capabilities/scopes.ts";
 import { ServiceError } from "../errors/errors.ts";
 
-export type Sql = postgres.Sql<Record<string, never>>;
-type ExecSql = Sql | postgres.TransactionSql<Record<string, never>>;
+export type Sql = Pool | PoolClient;
 
-const textArray = (sql: Sql, values: readonly string[]) =>
-	sql`array(
-		select jsonb_array_elements_text(${sql.json([...values])})
-	)`;
+const queryRows = async <T extends QueryResultRow>(
+	sql: Sql,
+	text: string,
+	values: readonly unknown[] = [],
+): Promise<T[]> => {
+	const result = await sql.query<T>(text, [...values]);
+	return result.rows;
+};
+
+const queryCount = async (
+	sql: Sql,
+	text: string,
+	values: readonly unknown[] = [],
+): Promise<number> => {
+	const result = await sql.query(text, [...values]);
+	return result.rowCount ?? 0;
+};
+
+const toScopes = (values: string[]): Scope[] => {
+	const scopes: Scope[] = [];
+	for (const value of values) {
+		if (!isScope(value)) {
+			throw new ServiceError(
+				"internal_error",
+				`Stored scope ${value} is not recognised.`,
+			);
+		}
+		scopes.push(value);
+	}
+	return scopes;
+};
 
 export type ClaimState =
 	| "unclaimed"
@@ -84,7 +110,7 @@ const toRegistration = (row: RegistrationRow): Registration => ({
 	neonBranchId: row.neon_branch_id,
 	databaseName: row.database_name,
 	roleName: row.role_name,
-	scopes: row.scopes as Scope[],
+	scopes: toScopes(row.scopes),
 	createdAt: row.created_at,
 	expiresAt: row.expires_at,
 	claimState: row.claim_state,
@@ -96,21 +122,24 @@ const toRegistration = (row: RegistrationRow): Registration => ({
 	source: row.source,
 });
 
-export const connect = (databaseUrl: string): Sql =>
-	postgres(databaseUrl, {
+export const connect = (databaseUrl: string): Pool => {
+	const pool = new Pool({
+		connectionString: databaseUrl,
 		max: 4,
-		idle_timeout: 20,
-		connect_timeout: 15,
-		// The service runs on a Neon Function; a long-lived prepared-statement cache across
-		// pooled connections is a liability there.
-		prepare: false,
-		onnotice: () => {},
+		idleTimeoutMillis: 20_000,
+		connectionTimeoutMillis: 15_000,
 	});
+	// Idle clients emit `error` off the query Promise. Unhandled, that ends the process.
+	pool.on("error", (error) => {
+		console.error(error);
+	});
+	return pool;
+};
 
 export const migrate = async (sql: Sql): Promise<void> => {
 	const here = dirname(fileURLToPath(import.meta.url));
 	const schema = await readFile(join(here, "schema.sql"), "utf8");
-	await sql.unsafe(schema);
+	await sql.query(schema);
 };
 
 export const withRegistrationLock = async <Result>(
@@ -118,18 +147,45 @@ export const withRegistrationLock = async <Result>(
 	registrationId: string,
 	operation: (lockedSql: Sql) => Promise<Result>,
 ): Promise<Result> => {
-	const connection = await sql.reserve();
-	await connection`
-		select pg_advisory_lock(hashtextextended(${registrationId}, 0))`;
+	if (!(sql instanceof Pool)) {
+		throw new ServiceError(
+			"internal_error",
+			"Registration lock requires the connection pool, not a checked-out client.",
+		);
+	}
+	const connection = await sql.connect();
+	const onLockError = (error: Error): void => {
+		console.error(error);
+	};
+	connection.on("error", onLockError);
+	let released = false;
+	const releaseConnection = (destroy?: Error | boolean): void => {
+		if (released) return;
+		released = true;
+		connection.removeListener("error", onLockError);
+		connection.release(destroy);
+	};
 	try {
-		return await operation(connection);
-	} finally {
+		// Direct (unpooled) backends keep a session advisory lock across auto-commit
+		// queries on this checked-out client. Work stays on the same client so a
+		// dropped backend fails the operation instead of leaving it running unlocked.
+		await connection.query("select pg_advisory_lock(hashtextextended($1, 0))", [
+			registrationId,
+		]);
 		try {
-			await connection`
-				select pg_advisory_unlock(hashtextextended(${registrationId}, 0))`;
+			return await operation(connection);
 		} finally {
-			connection.release();
+			try {
+				await connection.query("select pg_advisory_unlock(hashtextextended($1, 0))", [
+					registrationId,
+				]);
+			} catch (unlockError) {
+				console.error(unlockError);
+				releaseConnection(unlockError instanceof Error ? unlockError : true);
+			}
 		}
+	} finally {
+		releaseConnection();
 	}
 };
 
@@ -152,18 +208,31 @@ export const createRegistration = async (
 	sql: Sql,
 	input: CreateRegistrationInput,
 ): Promise<Registration> => {
-	const [row] = await sql<RegistrationRow[]>`
-		insert into registrations (
+	const [row] = await queryRows<RegistrationRow>(
+		sql,
+		`insert into registrations (
 			id, identity_type, asserted_subject, asserted_issuer,
 			neon_project_id, neon_org_id, neon_branch_id, database_name, role_name,
 			scopes, expires_at, source
 		) values (
-			${input.id}, ${input.identityType}, ${input.assertedSubject ?? null},
-			${input.assertedIssuer ?? null}, ${input.neonProjectId}, ${input.neonOrgId},
-			${input.neonBranchId}, ${input.databaseName}, ${input.roleName},
-			${textArray(sql, input.scopes)}, ${input.expiresAt}, ${input.source}
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11, $12
 		)
-		returning *`;
+		returning *`,
+		[
+			input.id,
+			input.identityType,
+			input.assertedSubject ?? null,
+			input.assertedIssuer ?? null,
+			input.neonProjectId,
+			input.neonOrgId,
+			input.neonBranchId,
+			input.databaseName,
+			input.roleName,
+			[...input.scopes],
+			input.expiresAt,
+			input.source,
+		],
+	);
 	if (!row) {
 		throw new ServiceError("internal_error", "Failed to persist the registration.");
 	}
@@ -174,8 +243,11 @@ export const findRegistration = async (
 	sql: Sql,
 	id: string,
 ): Promise<Registration | null> => {
-	const [row] = await sql<RegistrationRow[]>`
-		select * from registrations where id = ${id}`;
+	const [row] = await queryRows<RegistrationRow>(
+		sql,
+		"select * from registrations where id = $1",
+		[id],
+	);
 	return row ? toRegistration(row) : null;
 };
 
@@ -183,8 +255,11 @@ export const findRegistrationByProject = async (
 	sql: Sql,
 	neonProjectId: string,
 ): Promise<Registration | null> => {
-	const [row] = await sql<RegistrationRow[]>`
-		select * from registrations where neon_project_id = ${neonProjectId}`;
+	const [row] = await queryRows<RegistrationRow>(
+		sql,
+		"select * from registrations where neon_project_id = $1",
+		[neonProjectId],
+	);
 	return row ? toRegistration(row) : null;
 };
 
@@ -222,7 +297,9 @@ export const requireUsableRegistration = async (
 };
 
 export const freezeIssuance = async (sql: Sql, id: string): Promise<void> => {
-	await sql`update registrations set issuance_frozen = true where id = ${id}`;
+	await queryCount(sql, "update registrations set issuance_frozen = true where id = $1", [
+		id,
+	]);
 };
 
 export const setClaimState = async (
@@ -231,12 +308,15 @@ export const setClaimState = async (
 	state: ClaimState,
 	extra: { claimedIntoOrg?: string } = {},
 ): Promise<void> => {
-	await sql`
-		update registrations
-		set claim_state = ${state},
-			claimed_at = case when ${state} in ('accepted', 'reconciled') then coalesce(claimed_at, now()) else claimed_at end,
-			claimed_into_org = coalesce(${extra.claimedIntoOrg ?? null}, claimed_into_org)
-		where id = ${id}`;
+	await queryCount(
+		sql,
+		`update registrations
+		set claim_state = $1,
+			claimed_at = case when $1 in ('accepted', 'reconciled') then coalesce(claimed_at, now()) else claimed_at end,
+			claimed_into_org = coalesce($2, claimed_into_org)
+		where id = $3`,
+		[state, extra.claimedIntoOrg ?? null, id],
+	);
 };
 
 export const revokeRegistration = async (
@@ -244,14 +324,17 @@ export const revokeRegistration = async (
 	id: string,
 	reason: string,
 ): Promise<void> => {
-	await sql`
-		update registrations
-		set revoked_at = coalesce(revoked_at, now()), revoked_reason = ${reason}
-		where id = ${id}`;
+	await queryCount(
+		sql,
+		`update registrations
+		set revoked_at = coalesce(revoked_at, now()), revoked_reason = $2
+		where id = $1`,
+		[id, reason],
+	);
 };
 
 export const deleteRegistration = async (sql: Sql, id: string): Promise<void> => {
-	await sql`delete from registrations where id = ${id}`;
+	await queryCount(sql, "delete from registrations where id = $1", [id]);
 };
 
 // --- project and service credentials ------------------------------------------------------
@@ -272,26 +355,30 @@ export const storeProjectKey = async (
 		nonce: Buffer;
 	},
 ): Promise<void> => {
-	await sql`
-		insert into project_keys (registration_id, neon_key_id, ciphertext, nonce)
-		values (${input.registrationId}, ${input.neonKeyId}, ${input.ciphertext}, ${input.nonce})`;
+	await queryCount(
+		sql,
+		`insert into project_keys (registration_id, neon_key_id, ciphertext, nonce)
+		values ($1, $2, $3, $4)`,
+		[input.registrationId, input.neonKeyId, input.ciphertext, input.nonce],
+	);
 };
 
 export const getProjectKey = async (
 	sql: Sql,
 	registrationId: string,
 ): Promise<StoredProjectKey> => {
-	const [row] = await sql<
-		{
-			neon_key_id: string;
-			ciphertext: Buffer;
-			nonce: Buffer;
-			revoked_at: Date | null;
-		}[]
-	>`
-		select neon_key_id, ciphertext, nonce, revoked_at
+	const [row] = await queryRows<{
+		neon_key_id: string;
+		ciphertext: Buffer;
+		nonce: Buffer;
+		revoked_at: Date | null;
+	}>(
+		sql,
+		`select neon_key_id, ciphertext, nonce, revoked_at
 		from project_keys
-		where registration_id = ${registrationId}`;
+		where registration_id = $1`,
+		[registrationId],
+	);
 	if (!row) {
 		throw new ServiceError(
 			"internal_error",
@@ -310,10 +397,13 @@ export const markProjectKeyRevoked = async (
 	sql: Sql,
 	registrationId: string,
 ): Promise<void> => {
-	await sql`
-		update project_keys
+	await queryCount(
+		sql,
+		`update project_keys
 		set revoked_at = coalesce(revoked_at, now())
-		where registration_id = ${registrationId}`;
+		where registration_id = $1`,
+		[registrationId],
+	);
 };
 
 export type ServiceCredentialCapability = "auth" | "data_api";
@@ -327,11 +417,14 @@ export const storeServiceCredential = async (
 		nonce: Buffer;
 	},
 ): Promise<void> => {
-	await sql`
-		insert into service_credentials (registration_id, capability, ciphertext, nonce)
-		values (${input.registrationId}, ${input.capability}, ${input.ciphertext}, ${input.nonce})
+	await queryCount(
+		sql,
+		`insert into service_credentials (registration_id, capability, ciphertext, nonce)
+		values ($1, $2, $3, $4)
 		on conflict (registration_id, capability) do update
-		set ciphertext = excluded.ciphertext, nonce = excluded.nonce`;
+		set ciphertext = excluded.ciphertext, nonce = excluded.nonce`,
+		[input.registrationId, input.capability, input.ciphertext, input.nonce],
+	);
 };
 
 export const deleteServiceCredential = async (
@@ -339,10 +432,13 @@ export const deleteServiceCredential = async (
 	registrationId: string,
 	capability: ServiceCredentialCapability,
 ): Promise<void> => {
-	await sql`
-		delete from service_credentials
-		where registration_id = ${registrationId}
-		  and capability = ${capability}`;
+	await queryCount(
+		sql,
+		`delete from service_credentials
+		where registration_id = $1
+		  and capability = $2`,
+		[registrationId, capability],
+	);
 };
 
 export const updateRegistrationScopes = async (
@@ -350,10 +446,13 @@ export const updateRegistrationScopes = async (
 	registrationId: string,
 	scopes: readonly Scope[],
 ): Promise<void> => {
-	await sql`
-		update registrations
-		set scopes = ${textArray(sql, scopes)}
-		where id = ${registrationId}`;
+	await queryCount(
+		sql,
+		`update registrations
+		set scopes = $2::text[]
+		where id = $1`,
+		[registrationId, [...scopes]],
+	);
 };
 
 export const getServiceCredentials = async (
@@ -365,20 +464,19 @@ export const getServiceCredentials = async (
 		ciphertext: Buffer;
 		nonce: Buffer;
 	}[]
-> => {
-	const rows = await sql<
-		{
-			capability: ServiceCredentialCapability;
-			ciphertext: Buffer;
-			nonce: Buffer;
-		}[]
-	>`
-		select capability, ciphertext, nonce
+> =>
+	queryRows<{
+		capability: ServiceCredentialCapability;
+		ciphertext: Buffer;
+		nonce: Buffer;
+	}>(
+		sql,
+		`select capability, ciphertext, nonce
 		from service_credentials
-		where registration_id = ${registrationId}
-		order by capability`;
-	return rows;
-};
+		where registration_id = $1
+		order by capability`,
+		[registrationId],
+	);
 
 // --- tokens -------------------------------------------------------------------------------
 
@@ -392,24 +490,32 @@ export const recordToken = async (
 		expiresAt: Date;
 	},
 ): Promise<void> => {
-	await sql`
-		insert into tokens (jti, registration_id, kind, scopes, expires_at)
-		values (${input.jti}, ${input.registrationId}, ${input.kind},
-				${textArray(sql, input.scopes)}, ${input.expiresAt})`;
+	await queryCount(
+		sql,
+		`insert into tokens (jti, registration_id, kind, scopes, expires_at)
+		values ($1, $2, $3, $4::text[], $5)`,
+		[input.jti, input.registrationId, input.kind, [...input.scopes], input.expiresAt],
+	);
 };
 
 export const isTokenRevoked = async (sql: Sql, jti: string): Promise<boolean> => {
-	const [row] = await sql<{ revoked: boolean }[]>`
-		select (revoked_at is not null) as revoked from tokens where jti = ${jti}`;
+	const [row] = await queryRows<{ revoked: boolean }>(
+		sql,
+		"select (revoked_at is not null) as revoked from tokens where jti = $1",
+		[jti],
+	);
 	// An unknown jti is treated as revoked. A token we never recorded cannot be vouched for,
 	// and accepting it would make the revocation table advisory rather than authoritative.
 	return row ? row.revoked : true;
 };
 
 export const revokeToken = async (sql: Sql, jti: string): Promise<boolean> => {
-	const rows = await sql`
-		update tokens set revoked_at = coalesce(revoked_at, now())
-		where jti = ${jti} returning jti`;
+	const rows = await queryRows<{ jti: string }>(
+		sql,
+		`update tokens set revoked_at = coalesce(revoked_at, now())
+		where jti = $1 returning jti`,
+		[jti],
+	);
 	return rows.length > 0;
 };
 
@@ -417,10 +523,13 @@ export const revokeAllTokens = async (
 	sql: Sql,
 	registrationId: string,
 ): Promise<number> => {
-	const rows = await sql`
-		update tokens set revoked_at = coalesce(revoked_at, now())
-		where registration_id = ${registrationId} and revoked_at is null
-		returning jti`;
+	const rows = await queryRows<{ jti: string }>(
+		sql,
+		`update tokens set revoked_at = coalesce(revoked_at, now())
+		where registration_id = $1 and revoked_at is null
+		returning jti`,
+		[registrationId],
+	);
 	return rows.length;
 };
 
@@ -428,12 +537,15 @@ export const revokeAccessTokens = async (
 	sql: Sql,
 	registrationId: string,
 ): Promise<number> => {
-	const rows = await sql`
-		update tokens set revoked_at = coalesce(revoked_at, now())
-		where registration_id = ${registrationId}
+	const rows = await queryRows<{ jti: string }>(
+		sql,
+		`update tokens set revoked_at = coalesce(revoked_at, now())
+		where registration_id = $1
 			and kind = 'access'
 			and revoked_at is null
-		returning jti`;
+		returning jti`,
+		[registrationId],
+	);
 	return rows.length;
 };
 
@@ -463,31 +575,40 @@ export const recordDerivedCredential = async (
 		expiresAt?: Date | undefined;
 	},
 ): Promise<void> => {
-	await sql`
-		insert into derived_credentials
+	await queryCount(
+		sql,
+		`insert into derived_credentials
 			(registration_id, kind, external_id, branch_id, scopes, expires_at)
-		values (${input.registrationId}, ${input.kind}, ${input.externalId ?? null},
-				${input.branchId ?? null}, ${textArray(sql, input.scopes ?? [])},
-				${input.expiresAt ?? null})`;
+		values ($1, $2, $3, $4, $5::text[], $6)`,
+		[
+			input.registrationId,
+			input.kind,
+			input.externalId ?? null,
+			input.branchId ?? null,
+			[...(input.scopes ?? [])],
+			input.expiresAt ?? null,
+		],
+	);
 };
 
 export const liveDerivedCredentials = async (
 	sql: Sql,
 	registrationId: string,
 ): Promise<DerivedCredential[]> => {
-	const rows = await sql<
-		{
-			id: string;
-			kind: DerivedCredentialKind;
-			external_id: string | null;
-			branch_id: string | null;
-			scopes: string[];
-		}[]
-	>`
-		select id, kind, external_id, branch_id, scopes
+	const rows = await queryRows<{
+		id: string;
+		kind: DerivedCredentialKind;
+		external_id: string | null;
+		branch_id: string | null;
+		scopes: string[];
+	}>(
+		sql,
+		`select id, kind, external_id, branch_id, scopes
 		from derived_credentials
-		where registration_id = ${registrationId} and revoked_at is null
-		order by id`;
+		where registration_id = $1 and revoked_at is null
+		order by id`,
+		[registrationId],
+	);
 	return rows.map((row) => ({
 		id: Number(row.id),
 		kind: row.kind,
@@ -502,10 +623,14 @@ export const markDerivedCredentialRevoked = async (
 	id: number,
 	error?: string,
 ): Promise<void> => {
-	await sql`
-		update derived_credentials
-		set revoked_at = ${error ? null : sql`now()`}, revoke_error = ${error ?? null}
-		where id = ${id}`;
+	await queryCount(
+		sql,
+		`update derived_credentials
+		set revoked_at = case when $1::text is null then now() else null end,
+			revoke_error = $1
+		where id = $2`,
+		[error ?? null, id],
+	);
 };
 
 // --- capability demand --------------------------------------------------------------------
@@ -523,16 +648,24 @@ export const recordCapabilityRequests = async (
 	},
 ): Promise<void> => {
 	if (input.decisions.length === 0) return;
-	await sql`
-		insert into capability_requests ${sql(
-			input.decisions.map((decision) => ({
-				registration_id: input.registrationId,
-				capability: decision.capability,
-				granted: decision.granted,
-				reason: decision.reason ?? null,
-				source: input.source,
-			})),
-		)}`;
+	const values: unknown[] = [];
+	const placeholders = input.decisions.map((decision, index) => {
+		const offset = index * 5;
+		values.push(
+			input.registrationId,
+			decision.capability,
+			decision.granted,
+			decision.reason ?? null,
+			input.source,
+		);
+		return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
+	});
+	await queryCount(
+		sql,
+		`insert into capability_requests (registration_id, capability, granted, reason, source)
+		values ${placeholders.join(", ")}`,
+		values,
+	);
 };
 
 /** The number that decides whether a denied capability is worth building. */
@@ -540,12 +673,19 @@ export const capabilityDemand = async (
 	sql: Sql,
 	since: Date,
 ): Promise<{ capability: string; granted: boolean; requests: number }[]> => {
-	const rows = await sql<{ capability: string; granted: boolean; requests: string }[]>`
-		select capability, granted, count(*) as requests
+	const rows = await queryRows<{
+		capability: string;
+		granted: boolean;
+		requests: string;
+	}>(
+		sql,
+		`select capability, granted, count(*) as requests
 		from capability_requests
-		where created_at >= ${since}
+		where created_at >= $1
 		group by capability, granted
-		order by count(*) desc`;
+		order by count(*) desc`,
+		[since],
+	);
 	return rows.map((row) => ({
 		capability: row.capability,
 		granted: row.granted,
@@ -604,10 +744,13 @@ export const createClaimAttempt = async (
 		expiresAt: Date;
 	},
 ): Promise<ClaimAttempt> => {
-	const [row] = await sql<ClaimAttemptRow[]>`
-		insert into claim_attempts (registration_id, user_code_hash, expires_at)
-		values (${input.registrationId}, ${input.userCodeHash}, ${input.expiresAt})
-		returning *`;
+	const [row] = await queryRows<ClaimAttemptRow>(
+		sql,
+		`insert into claim_attempts (registration_id, user_code_hash, expires_at)
+		values ($1, $2, $3)
+		returning *`,
+		[input.registrationId, input.userCodeHash, input.expiresAt],
+	);
 	if (!row) {
 		throw new ServiceError("internal_error", "Failed to persist the claim attempt.");
 	}
@@ -618,12 +761,15 @@ export const findPendingClaimByCode = async (
 	sql: Sql,
 	userCodeHash: string,
 ): Promise<ClaimAttempt | null> => {
-	const [row] = await sql<ClaimAttemptRow[]>`
-		select *
+	const [row] = await queryRows<ClaimAttemptRow>(
+		sql,
+		`select *
 		from claim_attempts
-		where user_code_hash = ${userCodeHash} and state = 'pending'
+		where user_code_hash = $1 and state = 'pending'
 		order by created_at desc
-		limit 1`;
+		limit 1`,
+		[userCodeHash],
+	);
 	return row ? toClaimAttempt(row) : null;
 };
 
@@ -631,12 +777,15 @@ export const latestClaimAttempt = async (
 	sql: Sql,
 	registrationId: string,
 ): Promise<ClaimAttempt | null> => {
-	const [row] = await sql<ClaimAttemptRow[]>`
-		select *
+	const [row] = await queryRows<ClaimAttemptRow>(
+		sql,
+		`select *
 		from claim_attempts
-		where registration_id = ${registrationId}
+		where registration_id = $1
 		order by created_at desc
-		limit 1`;
+		limit 1`,
+		[registrationId],
+	);
 	return row ? toClaimAttempt(row) : null;
 };
 
@@ -648,12 +797,15 @@ export const startClaimTransfer = async (
 		expiresAt: Date;
 	},
 ): Promise<void> => {
-	const updated = await sql`
-		update claim_attempts
-		set transfer_request_id = ${input.transferRequestId},
-			expires_at = ${input.expiresAt}
-		where id = ${input.attemptId} and state = 'pending'`;
-	if (updated.count !== 1) {
+	const updated = await queryCount(
+		sql,
+		`update claim_attempts
+		set transfer_request_id = $1,
+			expires_at = $2
+		where id = $3 and state = 'pending'`,
+		[input.transferRequestId, input.expiresAt, input.attemptId],
+	);
+	if (updated !== 1) {
 		throw new ServiceError(
 			"internal_error",
 			"Claim attempt is no longer pending; the transfer request was not recorded.",
@@ -666,45 +818,61 @@ export const setClaimAttemptState = async (
 	input: {
 		attemptId: number;
 		state: ClaimAttemptState;
-		failureDetails?: postgres.JSONValue;
+		failureDetails?: unknown;
 	},
 ): Promise<void> => {
-	await sql`
-		update claim_attempts
-		set state = ${input.state},
-			failure_details = ${input.failureDetails === undefined ? null : sql.json(input.failureDetails)},
+	await queryCount(
+		sql,
+		`update claim_attempts
+		set state = $1,
+			failure_details = $2,
 			completed_at = case
-				when ${input.state} in ('accepted', 'reconciled', 'failed_plan', 'expired', 'cancelled')
+				when $1 in ('accepted', 'reconciled', 'failed_plan', 'expired', 'cancelled')
 				then coalesce(completed_at, now())
 				else completed_at
 			end
-		where id = ${input.attemptId}`;
+		where id = $3`,
+		[
+			input.state,
+			input.failureDetails === undefined ? null : JSON.stringify(input.failureDetails),
+			input.attemptId,
+		],
+	);
 };
 
 const applyClaimReconciliation = async (
-	sql: ExecSql,
+	sql: Sql,
 	input: {
 		registrationId: string;
 		attemptId: number;
 		claimedIntoOrg?: string;
 	},
 ): Promise<void> => {
-	await sql`
-		update tokens
+	await queryCount(
+		sql,
+		`update tokens
 		set revoked_at = coalesce(revoked_at, now())
-		where registration_id = ${input.registrationId}
-			and revoked_at is null`;
-	await sql`
-		update registrations
+		where registration_id = $1
+			and revoked_at is null`,
+		[input.registrationId],
+	);
+	await queryCount(
+		sql,
+		`update registrations
 		set claim_state = 'reconciled',
 			claimed_at = coalesce(claimed_at, now()),
-			claimed_into_org = coalesce(${input.claimedIntoOrg ?? null}, claimed_into_org)
-		where id = ${input.registrationId}`;
-	await sql`
-		update claim_attempts
+			claimed_into_org = coalesce($2, claimed_into_org)
+		where id = $1`,
+		[input.registrationId, input.claimedIntoOrg ?? null],
+	);
+	await queryCount(
+		sql,
+		`update claim_attempts
 		set state = 'reconciled',
 			completed_at = coalesce(completed_at, now())
-		where id = ${input.attemptId}`;
+		where id = $1`,
+		[input.attemptId],
+	);
 };
 
 export const completeClaimReconciliation = async (
@@ -715,20 +883,30 @@ export const completeClaimReconciliation = async (
 		claimedIntoOrg?: string;
 	},
 ): Promise<void> => {
-	// `withRegistrationLock` hands in a reserved connection. postgres.js only
-	// puts `.begin()` on the pool, so the status-poll path cannot use it.
-	if (typeof sql.begin === "function") {
-		await sql.begin(async (transaction) => {
-			await applyClaimReconciliation(transaction, input);
-		});
+	// `withRegistrationLock` hands in a checked-out client. BEGIN on that client so the
+	// status poll does not wait for a second pool connection.
+	if (sql instanceof Pool) {
+		const client = await sql.connect();
+		try {
+			await client.query("begin");
+			try {
+				await applyClaimReconciliation(client, input);
+				await client.query("commit");
+			} catch (error) {
+				await client.query("rollback");
+				throw error;
+			}
+		} finally {
+			client.release();
+		}
 		return;
 	}
-	await sql`begin`;
+	await sql.query("begin");
 	try {
 		await applyClaimReconciliation(sql, input);
-		await sql`commit`;
+		await sql.query("commit");
 	} catch (error) {
-		await sql`rollback`;
+		await sql.query("rollback");
 		throw error;
 	}
 };
@@ -750,16 +928,19 @@ export const recordUsageEvent = async (
 		source?: string | undefined;
 		registrationId?: string | undefined;
 		projectId?: string | undefined;
-		properties?: postgres.JSONValue | undefined;
+		properties?: unknown;
 	},
 ): Promise<void> => {
-	await sql`
-		insert into usage_events (event, source, registration_id, project_id, properties)
-		values (
-			${input.event},
-			${input.source ?? null},
-			${input.registrationId ?? null},
-			${input.projectId ?? null},
-			${sql.json(input.properties ?? {})}
-		)`;
+	await queryCount(
+		sql,
+		`insert into usage_events (event, source, registration_id, project_id, properties)
+		values ($1, $2, $3, $4, $5::jsonb)`,
+		[
+			input.event,
+			input.source ?? null,
+			input.registrationId ?? null,
+			input.projectId ?? null,
+			JSON.stringify(input.properties ?? {}),
+		],
+	);
 };

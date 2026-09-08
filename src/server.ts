@@ -30,7 +30,7 @@ const app = createApp({
 });
 
 export const closeDatabase = async (): Promise<void> => {
-	await sql.end({ timeout: 5 });
+	await sql.end();
 };
 
 export default app;

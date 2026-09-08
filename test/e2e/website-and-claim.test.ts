@@ -1,7 +1,27 @@
 import { setTimeout } from "node:timers/promises";
-import postgres from "postgres";
+import { Pool, type PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+
+const openSql = (
+	connectionString: string,
+	options: {
+		connectionTimeoutMillis?: number;
+		max?: number;
+		idleTimeoutMillis?: number;
+	} = {},
+): Pool => {
+	const pool = new Pool({
+		connectionString,
+		max: options.max ?? 4,
+		connectionTimeoutMillis: options.connectionTimeoutMillis ?? 15_000,
+		idleTimeoutMillis: options.idleTimeoutMillis,
+	});
+	pool.on("error", (error) => {
+		console.error(error);
+	});
+	return pool;
+};
 
 const serviceBaseUrl = (
 	process.env.CLAIMABLE_E2E_BASE_URL ?? "http://localhost:8787"
@@ -188,7 +208,7 @@ const cleanupProject = async (
 type Discovery = z.infer<typeof authorizationServerMetadata>;
 type Registration = z.infer<typeof registrationResponse>;
 type Credentials = z.infer<typeof credentialsResponse>;
-type PostgresClient = ReturnType<typeof postgres>;
+type PostgresClient = Pool;
 
 const registerProject = async (metadata: Discovery): Promise<Registration> => {
 	const registration = registrationResponse.parse(
@@ -236,24 +256,23 @@ const useProvisionedServices = async (
 			),
 		),
 	);
-	const sql = postgres(credentials.database_url, {
-		connect_timeout: 30,
-		prepare: false,
+	const sql = openSql(credentials.database_url, {
+		connectionTimeoutMillis: 30_000,
 	});
 	try {
-		await sql`
+		await sql.query(`
 			create table if not exists claimable_claim_e2e (
 				id integer primary key,
 				value text not null
-			)`;
-		await sql`
+			)`);
+		await sql.query(`
 			insert into claimable_claim_e2e (id, value)
 			values (1, 'before-claim')
-			on conflict (id) do update set value = excluded.value`;
-		await sql`grant usage on schema public to anonymous`;
-		await sql`grant select on table claimable_claim_e2e to anonymous`;
+			on conflict (id) do update set value = excluded.value`);
+		await sql.query("grant usage on schema public to anonymous");
+		await sql.query("grant select on table claimable_claim_e2e to anonymous");
 	} finally {
-		await sql.end({ timeout: 5 });
+		await sql.end();
 	}
 
 	const anonymousToken = anonymousTokenResponse.parse(
@@ -277,14 +296,18 @@ const useProvisionedServices = async (
 		"capability_requires_claim",
 	);
 
-	const heldDatabase = postgres(credentials.database_url, {
-		connect_timeout: 30,
+	const heldDatabase = openSql(credentials.database_url, {
+		connectionTimeoutMillis: 30_000,
 		max: 1,
-		prepare: false,
+		idleTimeoutMillis: 0,
 	});
-	await heldDatabase`select pg_backend_pid()`;
+	const heldClient = await heldDatabase.connect();
+	heldClient.on("error", (error) => {
+		console.error(error);
+	});
+	await heldClient.query("select pg_backend_pid()");
 
-	return { credentials, anonymousToken, authorization, heldDatabase };
+	return { credentials, anonymousToken, authorization, heldDatabase, heldClient };
 };
 
 const startBrowserClaim = async (
@@ -358,17 +381,16 @@ const expectDatabaseAccessRevoked = async (
 	registration: Registration,
 	credentials: Credentials,
 	authorization: Record<string, string>,
-	heldDatabase: PostgresClient,
+	heldClient: PoolClient,
 ): Promise<void> => {
-	await expect(heldDatabase`select 1`).rejects.toThrow();
-	const oldDatabase = postgres(credentials.database_url, {
-		connect_timeout: 5,
-		prepare: false,
+	await expect(heldClient.query("select 1")).rejects.toThrow();
+	const oldDatabase = openSql(credentials.database_url, {
+		connectionTimeoutMillis: 5_000,
 	});
 	try {
-		await expect(oldDatabase`select 1`).rejects.toThrow();
+		await expect(oldDatabase.query("select 1")).rejects.toThrow();
 	} finally {
-		await oldDatabase.end({ timeout: 1 });
+		await oldDatabase.end();
 	}
 	const oldAccessToken = await fetch(
 		`${serviceBaseUrl}/v1/projects/${registration.project.id}`,
@@ -430,13 +452,14 @@ const expectTransferredProjectKeepsDataAndServices = async (
 	);
 	expect(connection.ok).toBe(true);
 	const uri = connectionUriResponse.parse(await connection.json()).uri;
-	const sql = postgres(uri, { connect_timeout: 30, prepare: false });
+	const sql = openSql(uri, { connectionTimeoutMillis: 30_000 });
 	try {
-		const [row] = await sql<{ id: number; value: string }[]>`
-			select id, value from claimable_claim_e2e where id = 1`;
-		expect(row).toEqual({ id: 1, value: "before-claim" });
+		const { rows } = await sql.query<{ id: number; value: string }>(
+			"select id, value from claimable_claim_e2e where id = 1",
+		);
+		expect(rows[0]).toEqual({ id: 1, value: "before-claim" });
 	} finally {
-		await sql.end({ timeout: 5 });
+		await sql.end();
 	}
 	await expectAuthAndDataApiLive(credentials, anonymousToken);
 };
@@ -533,18 +556,20 @@ describe("website discovery and full claim ceremony", () => {
 			const metadata = await discoverFromWebsite();
 			const registration = await registerProject(metadata);
 			let heldDatabase: PostgresClient | undefined;
+			let heldClient: PoolClient | undefined;
 			let testFailure: unknown;
 
 			try {
 				const provisioned = await useProvisionedServices(registration, metadata);
 				heldDatabase = provisioned.heldDatabase;
+				heldClient = provisioned.heldClient;
 				const { credentials, anonymousToken, authorization } = provisioned;
 				await startBrowserClaim(registration, authorization);
 				await expectDatabaseAccessRevoked(
 					registration,
 					credentials,
 					authorization,
-					heldDatabase,
+					heldClient,
 				);
 				await expectAuthAndDataApiLive(credentials, anonymousToken);
 			} catch (error) {
@@ -553,7 +578,12 @@ describe("website discovery and full claim ceremony", () => {
 
 			const cleanupFailures: unknown[] = [];
 			try {
-				await heldDatabase?.end({ timeout: 1 });
+				heldClient?.release();
+			} catch (error) {
+				cleanupFailures.push(error);
+			}
+			try {
+				await heldDatabase?.end();
 			} catch (error) {
 				cleanupFailures.push(error);
 			}
@@ -584,10 +614,12 @@ describe("website discovery and full claim ceremony", () => {
 			const registration = await registerProject(metadata);
 			let testFailure: unknown;
 			let heldDatabase: PostgresClient | undefined;
+			let heldClient: PoolClient | undefined;
 
 			try {
 				const provisioned = await useProvisionedServices(registration, metadata);
 				heldDatabase = provisioned.heldDatabase;
+				heldClient = provisioned.heldClient;
 				const { credentials, anonymousToken, authorization } = provisioned;
 				const { claim, transferRequestId } = await startBrowserClaim(
 					registration,
@@ -597,7 +629,7 @@ describe("website discovery and full claim ceremony", () => {
 					registration,
 					credentials,
 					authorization,
-					heldDatabase,
+					heldClient,
 				);
 				await expectAuthAndDataApiLive(credentials, anonymousToken);
 				await acceptTransfer(
@@ -628,7 +660,12 @@ describe("website discovery and full claim ceremony", () => {
 
 			const cleanupFailures: unknown[] = [];
 			try {
-				await heldDatabase?.end({ timeout: 1 });
+				heldClient?.release();
+			} catch (error) {
+				cleanupFailures.push(error);
+			}
+			try {
+				await heldDatabase?.end();
 			} catch (error) {
 				cleanupFailures.push(error);
 			}
