@@ -91,19 +91,21 @@ project (personal `neon`, not `--profile dbx`). `neon env pull --file .env.local
 `DATABASE_URL` here.
 
 `.env.prod` is Function apply only. Holding-org keys and Function secrets. No `DATABASE_URL`.
-Keep it complete for every key in `neon.ts` except `SENTRY_RELEASE`. When a declared Function
+Keep it complete for every key in `neon.ts` that comes from the file. When a declared Function
 key is added, rotated, or removed, update `.env.prod` (prod value) and `.env.local` (local
 value). Do not copy `NEON_API_KEY_KIND=user_local` or Testing-org keys into `.env.prod`.
+`neon.ts` hardcodes `NEON_API_KEY_KIND` to `service_user`.
 
 ```bash
-SENTRY_RELEASE=$(git rev-parse --short HEAD) neon deploy --profile dbx --env .env.prod \
-  --project-id soft-morning-58679842 --branch main --no-env-pull
+bun run deploy -- --plan
+bun run deploy
 ```
 
+`bun run deploy` upserts `SENTRY_RELEASE` to this checkout's HEAD in `.env.prod`, then runs
+`neon deploy --profile dbx --project-id soft-morning-58679842 --branch main --env .env.prod --no-env-pull`.
 `--no-env-pull` is required: default pull writes the Function project's `DATABASE_URL` into
-`.env.local`. `SENTRY_RELEASE` is the SHA of that apply; set it on the command, not in
-`.env.prod`. `--env` does not override an existing shell var. An unset `SENTRY_RELEASE`
-makes `defineConfig` throw.
+`.env.local`. The child env makes `.env.prod` win over inherited Function keys, including an
+empty `SENTRY_RELEASE`. An unset `SENTRY_RELEASE` makes `defineConfig` throw.
 
 ## Non-negotiable rules
 

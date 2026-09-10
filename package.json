@@ -16,6 +16,7 @@
 		"test": "vitest run --project unit",
 		"test:watch": "vitest --project unit",
 		"test:e2e": "node --env-file-if-exists=.env.local ./node_modules/vitest/vitest.mjs run --project e2e",
+		"deploy": "bun scripts/deploy.ts",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"migrate": "node --env-file-if-exists=.env.local --experimental-strip-types lib/store/migrate.ts",

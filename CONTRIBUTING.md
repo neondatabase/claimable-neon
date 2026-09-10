@@ -12,6 +12,7 @@ bun install
 bun run test
 bun run typecheck
 bun run lint
+bun run deploy -- --help
 ```
 
 Use `bun run test:watch` while developing. Run `bun run lint:fix` to apply Biome's safe formatting
@@ -28,6 +29,7 @@ and lint fixes.
 - `lib/neon/`: the internal Neon Management API client
 - `lib/errors/`: public service error codes and envelopes
 - `test/`: unit, contract, and end-to-end tests
+- `scripts/deploy.ts`: production Function apply (`bun run deploy`)
 - `docs/overview.md`: agent flow and how this differs from neon.new
 - `docs/status.md`: implemented surface and unresolved design questions
 
@@ -167,21 +169,22 @@ profile `dbx`.
 Preferred full deploy from a checkout that already has a real `.env.prod` (never a symlink):
 
 ```bash
-SENTRY_RELEASE=$(git rev-parse --short HEAD) neon deploy --profile dbx --env .env.prod \
-  --project-id soft-morning-58679842 \
-  --branch main \
-  --no-env-pull
+bun run deploy -- --plan
+bun run deploy
 ```
 
-`.env.prod` is Function env. Keep it complete for every key in `neon.ts` except `SENTRY_RELEASE`,
-which is the SHA of this apply and must be set on the command. `--env` does not override an
-existing shell var. Do not copy local `NEON_API_KEY_KIND=user_local` or Testing-org keys into
-`.env.prod`. `--no-env-pull` keeps the Function project's `DATABASE_URL` out of `.env.local`.
+`bun run deploy` upserts `SENTRY_RELEASE` from this checkout and applies `neon.ts` with
+`--project-id soft-morning-58679842 --branch main --no-env-pull`. `.env.prod` is Function env.
+Keep it complete for every `neon.ts` key that comes from the file. `NEON_API_KEY_KIND` is
+hardcoded to `service_user` in `neon.ts`; do not copy local `user_local` into `.env.prod`.
+`--env` does not override an existing shell var, so the script sets Function keys from the
+file. `--no-env-pull` keeps the Function project's `DATABASE_URL` out of `.env.local`.
 
 `neon deploy --env <file>` loads that file into `process.env` before evaluating `neon.ts` and
 uploads those values as Function env. An unset declared key is `undefined` and `defineConfig`
 throws. Omit a key from `neon.ts` if you do not want to write it. Never coerce a missing
-`process.env` value to an empty string: that uploads `""` and deletes the live key.
+`process.env` value to an empty string: that uploads `""` and deletes the live key. A live
+Function env name that would be dropped stops the apply.
 
 For a targeted env update without applying `neon.ts`:
 
