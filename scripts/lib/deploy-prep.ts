@@ -18,7 +18,7 @@ export const REQUIRED_FUNCTION_ENV = [
 	"PROJECT_NAME_PREFIX",
 ] as const;
 
-export const HARDCODED_FUNCTION_ENV = ["NEON_API_KEY_KIND"] as const;
+export const HARDCODED_FUNCTION_ENV = ["NEON_API_KEY_KIND", "SENTRY_ENABLED"] as const;
 
 const ASSIGNMENT = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
 
@@ -164,6 +164,7 @@ export function neonChildEnv(opts: {
 		child[key] = value;
 	}
 	child.NEON_API_KEY_KIND = undefined;
+	child.SENTRY_ENABLED = "true";
 	return child;
 }
 

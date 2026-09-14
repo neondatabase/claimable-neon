@@ -99,11 +99,13 @@ describe("neonChildEnv", () => {
 			inherited: {
 				PATH: "/bin",
 				SENTRY_RELEASE: "",
+				SENTRY_ENABLED: "false",
 				NEON_API_KEY: "shell-token",
 				NEON_API_KEY_KIND: "user_local",
 			},
 		});
 		expect(child.SENTRY_RELEASE).toBe("file-SENTRY_RELEASE");
+		expect(child.SENTRY_ENABLED).toBe("true");
 		expect(child.NEON_API_KEY).toBe("file-NEON_API_KEY");
 		expect(child.PATH).toBe("/bin");
 		expect(child.NEON_API_KEY_KIND).toBeUndefined();

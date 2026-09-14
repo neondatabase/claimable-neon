@@ -102,7 +102,7 @@ bun run test
 
 Create `.env.local` from the checked-in template. Generate the signing and encryption keys, then
 fill in the remaining secrets. This file is the local app env. Never symlink it to another
-checkout.
+checkout. Do not add Sentry keys; Sentry is production-only.
 
 ```bash
 cp .env.example .env.local
@@ -173,7 +173,8 @@ bun run deploy -- --plan
 bun run deploy
 ```
 
-`bun run deploy` upserts `SENTRY_RELEASE` from this checkout and applies `neon.ts` with
+`bun run deploy` upserts `SENTRY_RELEASE`, enables production Sentry during config evaluation,
+and applies `neon.ts` with
 `--project-id soft-morning-58679842 --branch main --no-env-pull`. `.env.prod` is Function env.
 Keep it complete for every `neon.ts` key that comes from the file. `NEON_API_KEY_KIND` is
 hardcoded to `service_user` in `neon.ts`; do not copy local `user_local` into `.env.prod`.
@@ -185,6 +186,10 @@ uploads those values as Function env. An unset declared key is `undefined` and `
 throws. Omit a key from `neon.ts` if you do not want to write it. Never coerce a missing
 `process.env` value to an empty string: that uploads `""` and deletes the live key. A live
 Function env name that would be dropped stops the apply.
+
+Use the wrapper for full deploys. Raw `neon deploy --env .env.prod` does not select
+production Sentry. For source-only rollback, `neon functions deploy` without `--env`
+preserves the live Function environment.
 
 For a targeted env update without applying `neon.ts`:
 

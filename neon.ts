@@ -1,5 +1,13 @@
 import { defineConfig } from "@neon/config/v1";
 
+function requiredSentryEnv(key: "SENTRY_DSN" | "SENTRY_RELEASE"): string {
+	const value = process.env[key];
+	if (!value) {
+		throw new Error(`${key} is required when Sentry is enabled`);
+	}
+	return value;
+}
+
 export default defineConfig({
 	preview: {
 		functions: {
@@ -17,10 +25,15 @@ export default defineConfig({
 					KEY_ENCRYPTION_KEY: process.env.KEY_ENCRYPTION_KEY!,
 					ANALYTICS_WRITE_KEY: process.env.ANALYTICS_WRITE_KEY!,
 					PROXY_SHARED_SECRET: process.env.PROXY_SHARED_SECRET!,
-					SENTRY_DSN: process.env.SENTRY_DSN!,
-					SENTRY_RELEASE: process.env.SENTRY_RELEASE!,
-					SENTRY_TRACES_SAMPLE_RATE: process.env.SENTRY_TRACES_SAMPLE_RATE ?? "1",
-					PRODUCTION_BRANCH: process.env.PRODUCTION_BRANCH ?? "main",
+					...(process.env.SENTRY_ENABLED === "true"
+						? {
+								SENTRY_ENABLED: "true",
+								SENTRY_DSN: requiredSentryEnv("SENTRY_DSN"),
+								SENTRY_RELEASE: requiredSentryEnv("SENTRY_RELEASE"),
+								SENTRY_TRACES_SAMPLE_RATE: process.env.SENTRY_TRACES_SAMPLE_RATE ?? "1",
+								PRODUCTION_BRANCH: process.env.PRODUCTION_BRANCH ?? "main",
+							}
+						: {}),
 					PROJECT_TTL_SECONDS: process.env.PROJECT_TTL_SECONDS ?? String(72 * 60 * 60),
 					PROJECT_NAME_PREFIX: process.env.PROJECT_NAME_PREFIX ?? "claimable",
 				},

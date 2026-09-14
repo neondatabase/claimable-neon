@@ -9,13 +9,13 @@
 		"node": ">=24"
 	},
 	"scripts": {
-		"dev": "node --env-file-if-exists=.env.local --experimental-strip-types --watch src/local.ts",
-		"start": "node --env-file-if-exists=.env.local --experimental-strip-types src/local.ts",
+		"dev": "SENTRY_ENABLED=false node --env-file-if-exists=.env.local --experimental-strip-types --watch src/local.ts",
+		"start": "SENTRY_ENABLED=false node --env-file-if-exists=.env.local --experimental-strip-types src/local.ts",
 		"build": "tsc --noEmit",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run --project unit",
-		"test:watch": "vitest --project unit",
-		"test:e2e": "node --env-file-if-exists=.env.local ./node_modules/vitest/vitest.mjs run --project e2e",
+		"test": "SENTRY_ENABLED=false node --env-file-if-exists=.env.local ./node_modules/vitest/vitest.mjs run --project unit",
+		"test:watch": "SENTRY_ENABLED=false node --env-file-if-exists=.env.local ./node_modules/vitest/vitest.mjs --project unit",
+		"test:e2e": "SENTRY_ENABLED=false node --env-file-if-exists=.env.local ./node_modules/vitest/vitest.mjs run --project e2e",
 		"deploy": "bun scripts/deploy.ts",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
