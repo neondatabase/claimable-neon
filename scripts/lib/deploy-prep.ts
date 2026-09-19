@@ -98,7 +98,9 @@ export function isMissingFunctionError(error: unknown): boolean {
 		}
 	}
 	const text = parts.join("\n");
-	return /not found/i.test(text) || /\b404\b/.test(text);
+	return (
+		/not found/i.test(text) || /\b404\b/.test(text) || /not visible on branch/i.test(text)
+	);
 }
 
 export function liveOnlyEnvNames(opts: {

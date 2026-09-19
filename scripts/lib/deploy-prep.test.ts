@@ -272,15 +272,19 @@ describe("live Function env names", () => {
 });
 
 describe("isMissingFunctionError", () => {
-	it("treats not-found and 404 stderr as a missing Function", () => {
+	it("treats not-found, 404, and not-visible-on-branch as a missing Function", () => {
 		const notFound = Object.assign(new Error("Command failed"), {
 			stderr: 'Error: function "janitor" not found\n',
 		});
 		const missingJson = Object.assign(new Error("Command failed: 404"), {
 			stderr: '{"code":"404","message":"not found"}',
 		});
+		const notVisible = Object.assign(new Error("Command failed"), {
+			stderr: "ERROR: function not visible on branch\n",
+		});
 		expect(isMissingFunctionError(notFound)).toBe(true);
 		expect(isMissingFunctionError(missingJson)).toBe(true);
+		expect(isMissingFunctionError(notVisible)).toBe(true);
 		expect(isMissingFunctionError(new Error("unauthorized"))).toBe(false);
 		expect(isMissingFunctionError("nope")).toBe(false);
 	});
