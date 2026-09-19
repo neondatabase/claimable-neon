@@ -263,6 +263,23 @@ export const findRegistrationByProject = async (
 	return row ? toRegistration(row) : null;
 };
 
+export const listRetentionCandidates = async (
+	sql: Sql,
+	createdBefore: Date,
+): Promise<Registration[]> => {
+	const rows = await queryRows<RegistrationRow>(
+		sql,
+		`select *
+		from registrations
+		where revoked_at is null
+			and claim_state <> 'reconciled'
+			and created_at < $1
+		order by created_at`,
+		[createdBefore],
+	);
+	return rows.map(toRegistration);
+};
+
 /**
  * Load a registration and assert it can still authorize work, translating each dead state into
  * the specific code a client needs to react correctly. Collapsing these into one error is what
@@ -363,10 +380,10 @@ export const storeProjectKey = async (
 	);
 };
 
-export const getProjectKey = async (
+export const findProjectKey = async (
 	sql: Sql,
 	registrationId: string,
-): Promise<StoredProjectKey> => {
+): Promise<StoredProjectKey | null> => {
 	const [row] = await queryRows<{
 		neon_key_id: string;
 		ciphertext: Buffer;
@@ -379,18 +396,27 @@ export const getProjectKey = async (
 		where registration_id = $1`,
 		[registrationId],
 	);
-	if (!row) {
-		throw new ServiceError(
-			"internal_error",
-			"Registration has no stored project credential.",
-		);
-	}
+	if (!row) return null;
 	return {
 		neonKeyId: Number(row.neon_key_id),
 		ciphertext: row.ciphertext,
 		nonce: row.nonce,
 		revokedAt: row.revoked_at,
 	};
+};
+
+export const getProjectKey = async (
+	sql: Sql,
+	registrationId: string,
+): Promise<StoredProjectKey> => {
+	const stored = await findProjectKey(sql, registrationId);
+	if (!stored) {
+		throw new ServiceError(
+			"internal_error",
+			"Registration has no stored project credential.",
+		);
+	}
+	return stored;
 };
 
 export const markProjectKeyRevoked = async (
@@ -919,7 +945,8 @@ export type UsageEventName =
 	| "claim_reconciled"
 	| "proxy_call"
 	| "credentials_read"
-	| "registration_deleted";
+	| "registration_deleted"
+	| "unclaimed_purged";
 
 export const recordUsageEvent = async (
 	sql: Sql,
@@ -943,4 +970,72 @@ export const recordUsageEvent = async (
 			JSON.stringify(input.properties ?? {}),
 		],
 	);
+};
+
+export type RetentionCleanupReason = "deleted" | "already_gone" | "claimed";
+
+const applyRetentionCleanup = async (
+	sql: Sql,
+	input: {
+		registrationId: string;
+		projectId: string;
+		source: string;
+		reason: RetentionCleanupReason;
+		claimedIntoOrg?: string;
+	},
+): Promise<void> => {
+	if (input.reason === "claimed") {
+		await setClaimState(sql, input.registrationId, "reconciled", {
+			...(input.claimedIntoOrg ? { claimedIntoOrg: input.claimedIntoOrg } : {}),
+		});
+	} else {
+		await revokeRegistration(sql, input.registrationId, "unclaimed_retention");
+	}
+	await revokeAllTokens(sql, input.registrationId);
+	await markProjectKeyRevoked(sql, input.registrationId);
+	await recordUsageEvent(sql, {
+		event: "unclaimed_purged",
+		source: input.source,
+		registrationId: input.registrationId,
+		projectId: input.projectId,
+		properties: { reason: input.reason },
+	});
+};
+
+export const commitRetentionCleanup = async (
+	sql: Sql,
+	input: {
+		registrationId: string;
+		projectId: string;
+		source: string;
+		reason: RetentionCleanupReason;
+		claimedIntoOrg?: string;
+	},
+): Promise<void> => {
+	// Advisory-lock sessions auto-commit each statement. Terminal registration
+	// state and the usage row have to land together or a failed run is skipped forever.
+	if (sql instanceof Pool) {
+		const client = await sql.connect();
+		try {
+			await client.query("begin");
+			try {
+				await applyRetentionCleanup(client, input);
+				await client.query("commit");
+			} catch (error) {
+				await client.query("rollback");
+				throw error;
+			}
+		} finally {
+			client.release();
+		}
+		return;
+	}
+	await sql.query("begin");
+	try {
+		await applyRetentionCleanup(sql, input);
+		await sql.query("commit");
+	} catch (error) {
+		await sql.query("rollback");
+		throw error;
+	}
 };

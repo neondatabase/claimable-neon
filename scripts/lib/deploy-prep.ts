@@ -20,6 +20,8 @@ export const REQUIRED_FUNCTION_ENV = [
 
 export const HARDCODED_FUNCTION_ENV = ["NEON_API_KEY_KIND", "SENTRY_ENABLED"] as const;
 
+export const DECLARED_OPTIONAL_FUNCTION_ENV = ["UNCLAIMED_RETENTION_SECONDS"] as const;
+
 const ASSIGNMENT = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
 
 export function assertGitSha(value: string): string {
@@ -76,7 +78,27 @@ export function readEnvAssignments(content: string): Record<string, string> {
 }
 
 export function declaredUploadKeys(): string[] {
-	return [...REQUIRED_FUNCTION_ENV, ...HARDCODED_FUNCTION_ENV];
+	return [
+		...REQUIRED_FUNCTION_ENV,
+		...HARDCODED_FUNCTION_ENV,
+		...DECLARED_OPTIONAL_FUNCTION_ENV,
+	];
+}
+
+export const FUNCTION_SLUGS = ["claimable", "janitor"] as const;
+
+export function isMissingFunctionError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const parts = [error.message];
+	if ("stderr" in error) {
+		const stderr = error.stderr;
+		if (typeof stderr === "string") parts.push(stderr);
+		else if (stderr instanceof Uint8Array) {
+			parts.push(new TextDecoder().decode(stderr));
+		}
+	}
+	const text = parts.join("\n");
+	return /not found/i.test(text) || /\b404\b/.test(text);
 }
 
 export function liveOnlyEnvNames(opts: {
@@ -97,6 +119,28 @@ export function assertNoLiveOnlyEnv(liveOnly: readonly string[]): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export const DAILY_PURGE_TRIGGER_NAME = "daily-purge";
+export const DAILY_PURGE_CRON = "0 0 * * *";
+
+export function parseTriggerNames(payload: unknown): string[] {
+	const rows = Array.isArray(payload)
+		? payload
+		: isRecord(payload) && Array.isArray(payload.triggers)
+			? payload.triggers
+			: null;
+	if (rows === null) {
+		throw new Error("neon triggers list: expected array");
+	}
+	const names: string[] = [];
+	for (const row of rows) {
+		if (!isRecord(row) || typeof row.name !== "string" || row.name.length === 0) {
+			throw new Error("neon triggers list: missing name");
+		}
+		names.push(row.name);
+	}
+	return names;
 }
 
 export function parseLiveFunctionEnvNames(payload: unknown): string[] {
@@ -165,6 +209,9 @@ export function neonChildEnv(opts: {
 	}
 	child.NEON_API_KEY_KIND = undefined;
 	child.SENTRY_ENABLED = "true";
+	const retention = opts.fileEnv.UNCLAIMED_RETENTION_SECONDS;
+	child.UNCLAIMED_RETENTION_SECONDS =
+		retention !== undefined && retention.trim() !== "" ? retention : undefined;
 	return child;
 }
 

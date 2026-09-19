@@ -9,10 +9,12 @@ description: >-
   want to add a separate storage provider like AWS S3, Cloudflare R2, or
   Supabase Storage. Triggers include "object storage", "bucket", "blob
   storage", "file storage", "store uploads/images/files", "S3-compatible
-  storage", "presigned URL", "where do I put files", "Neon Object Storage",
+  storage", "presigned URL", "where do I put files", "storage logs",
+  "bucket logs", "CDN in front of object storage", "Neon Object Storage",
   "Neon Storage", and "storage that branches with my database".
 metadata:
   parent: neon
+  source: https://github.com/neondatabase/agent-skills/tree/main/skills/neon-object-storage
 ---
 
 **FIRST**: Use the parent `neon` skill for a Neon overview, getting started with Neon, Neon development best practices, and more.
@@ -20,12 +22,12 @@ metadata:
 If the `neon` skill is not installed, fetch it from https://neon.com/docs/ai/skills/neon/SKILL.md or install it with:
 
 ```bash
-npx skills add neondatabase/agent-skills --skill neon
+neon skills -s neon -y
 ```
 
 # Neon Object Storage
 
-This is a public beta feature and only available in `us-east-2`.
+Currently available in `aws-us-east-2`, `aws-us-east-1`, `aws-eu-central-1`, and `aws-ap-southeast-1`.
 
 Neon Object Storage is S3-compatible object storage that branches with your projects: every branch gets its own isolated storage state, so files and database rows stay in sync across dev, preview, staging, and production.
 
@@ -33,14 +35,14 @@ Use this skill to help the user store and serve files that branch alongside thei
 
 ## When to Use
 
-Reach for Neon Object Storage when the user needs to store files (images, uploads, generated assets, documents, backups) and any of the following are true:
+Reach for Neon Object Storage for the files an app and its users produce — uploads, attachments, avatars, images, documents, generated assets, backups. It is the default place to put them when the app is already on Neon:
 
 - **They already use Lakebase Postgres and don't want a second provider.** One backend, one bill, one CLI, one set of branches — instead of standing up and wiring a separate AWS S3 / R2 / Supabase Storage account. The same Neon credential that backs the database backs storage.
 - **Files must stay in sync with the database across environments.** Storage branches _together with_ your Postgres data. Fork a branch and the child instantly inherits the parent's buckets and objects at that point in time — copy-on-write, so no data is duplicated. This is what makes agent, dev, preview, and test environments seamless: a preview branch gets a consistent snapshot of _both_ the rows and the files they reference, and writes on the child never touch the parent.
 - **They want safe, throwaway environments.** Upload, overwrite, and delete files in a preview/CI branch without any risk to production data, then drop the branch.
 - **They want standard S3 tooling.** It's built on S3 semantics and speaks the S3 API, so the AWS SDKs, `boto3`, the AWS CLI, and presigned URLs all work — reliable and familiar, with no proprietary client.
 
-If the user has no Neon project, isn't on Postgres, and just needs a standalone CDN-backed asset store, a dedicated object store may fit better — but the moment branch-consistent files + rows matter, this is the reason to use it.
+If the files in question ship with the app itself — HTML, JS bundles, CSS, the images in `public/` — that's static web hosting and belongs on Vercel, Netlify, or Cloudflare instead. Public assets that are served from a bucket want a CDN in front of them (see [Architecture: Where Object Storage Fits](#architecture-where-object-storage-fits)).
 
 ## What It Does
 
@@ -51,22 +53,27 @@ If the user has no Neon project, isn't on Postgres, and just needs a standalone 
 
 ## Availability
 
-Check this precondition before setting anything up: Neon Object Storage is a public beta feature available only on new projects in the `us-east-2` region. Confirm the user's Neon project is a new project in `us-east-2` before proceeding; it can't be enabled on existing projects.
+Check this precondition before setting anything up: Neon Object Storage is currently available in `aws-us-east-2`, `aws-us-east-1`, `aws-eu-central-1`, and `aws-ap-southeast-1`. Confirm the user's Neon project is in one of these regions before proceeding. Region coverage: https://neon.com/docs/get-started/backend-overview.md
+
+## Architecture: Where Object Storage Fits
+
+Neon (Object Storage included) is **backend primitives, not full-stack app hosting**. Object Storage holds the files the app and its users produce — uploads, attachments, avatars, documents, generated images, backups — keyed from Postgres rows on the same branch. Two boundaries follow from that:
+
+- **Put a CDN in front of public assets.** A `public_read` object is read anonymously at `${AWS_ENDPOINT_URL_S3}/<bucket>/<object-key>` — the branch's storage endpoint, injected as an env var (see [Environment Variables](#environment-variables)). For assets a browser loads on every page view — avatars, product images, anything hot — use that as the origin for a Cloudflare or Vercel CDN, and set `Cache-Control` on `PutObject` so the edge knows how long to hold each object. A cached object is only as fresh as its key, so write each version to a new key (`avatars/<user-id>/<uuid>.jpg`) and repoint the key stored in Postgres, rather than overwriting one key and waiting out the TTL. The endpoint is branch-scoped, so a production CDN points at the production branch while preview branches read their own endpoint directly rather than sharing a cache. Private buckets stay on presigned URLs instead, which carry their signature in the query string.
+- **Host the app itself elsewhere.** Anything checked into the repo — HTML, JS bundles, CSS, and the images and fonts that ship in `public/` — belongs on Vercel, Netlify, or Cloudflare, along with the index documents, SPA fallbacks, and custom domains that go with them. Neon has no website mode to serve them through: `PutBucketWebsite` returns `501 Not Implemented`.
 
 ## Setup
 
-Object storage is part of the `neon.ts` infrastructure-as-code config (see the `neon` skill for the branch-first workflow, `link`/`checkout`, and `neon.ts` basics). Declare buckets under `preview.buckets`, keyed by bucket name:
+Object storage is part of the `neon.ts` infrastructure-as-code config (see the `neon` skill for the branch-first workflow, `link`/`checkout`, and `neon.ts` basics). Declare buckets under `buckets`, keyed by bucket name:
 
 ```typescript
 // neon.ts
 import { defineConfig } from "@neon/config/v1";
 
 export default defineConfig({
-  preview: {
-    buckets: {
-      images: {}, // private by default
-      "public-assets": { access: "public_read" },
-    },
+  buckets: {
+    images: {}, // private by default
+    "public-assets": { access: "public_read" },
   },
 });
 ```
@@ -79,7 +86,7 @@ neon deploy   # alias for `neon config apply`
 
 ## Neon Infrastructure as Code (`neon.ts`)
 
-The `preview.buckets` block above is part of `neon.ts`, Neon's infrastructure-as-code file — one TypeScript file declares your buckets alongside every other service the branch should have (see the `neon` skill for the full reference). Reconcile the declaration against a branch the Terraform way:
+The `buckets` block above is part of `neon.ts`, Neon's infrastructure-as-code file — one TypeScript file declares your buckets alongside every other service the branch should have (see the `neon` skill for the full reference). Reconcile the declaration against a branch the Terraform way:
 
 ```bash
 neon config status   # print the branch's live config (which buckets exist)
@@ -91,7 +98,7 @@ Buckets are **branch-scoped**: when a `neon.ts` is present, `neon checkout` appl
 
 ## Environment Variables
 
-When `preview.buckets` is declared, Neon injects **AWS-standard** S3 env vars so the AWS SDKs work from the environment with zero extra config. Inside a deployed Neon Function these are injected automatically; locally, pull them onto disk (or inject them at runtime) via the CLI:
+When `buckets` is declared, Neon injects **AWS-standard** S3 env vars so the AWS SDKs work from the environment with zero extra config. Inside a deployed Neon Function these are injected automatically; locally, pull them onto disk (or inject them at runtime) via the CLI:
 
 ```bash
 neon env pull            # writes the branch's vars into .env (or .env.local)
@@ -195,12 +202,21 @@ The canonical pattern: an agent generates an image → `PutObject` into the `ima
 
 `neon` also has first-class bucket/object commands (`neon bucket create|list|delete`, `neon bucket object put|get|list|delete`) for scripting and one-off operations.
 
+## Built-in Branch Logs
+
+```bash
+neon logs query --branch production --source storage --since 1h
+```
+
+Storage is one of the two sources branch logs cover today, alongside Neon Functions. Logs are scoped to a single branch, so pass `--branch` when the bucket you're debugging isn't on the branch you're checked out on. Everything else about logs — the required CLI version, filters, the SDK, and the Loki-compatible read API — is in the parent `neon` skill's **Observability** section.
+
 ## Neon Documentation
 
 The Neon documentation is the source of truth and Object Storage is evolving rapidly, so always verify against the official docs. Any doc page can be fetched as markdown by appending `.md` to the URL or by requesting `Accept: text/markdown`. Find the right page from the docs index (https://neon.com/docs/llms.txt) and the changelog announcements.
 
 ## Further Reading
 
+- https://neon.com/docs/get-started/backend-overview.md
 - https://neon.com/docs/storage/overview.md
 - https://neon.com/docs/storage/get-started.md
 - https://neon.com/docs/storage/buckets.md

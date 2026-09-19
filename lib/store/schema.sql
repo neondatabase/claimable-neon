@@ -44,6 +44,10 @@ create index if not exists registrations_expires_at_idx
     on registrations (expires_at)
     where revoked_at is null;
 
+create index if not exists registrations_retention_created_at_idx
+    on registrations (created_at)
+    where revoked_at is null and claim_state <> 'reconciled';
+
 -- The project-scoped Neon API key backing a registration. Never leaves this service; the agent
 -- token is exchanged for it on every proxied call.
 create table if not exists project_keys (

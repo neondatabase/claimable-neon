@@ -25,6 +25,7 @@ and lint fixes.
 - `lib/edge/`: Vercel path-preserving forwarder and the Function shared-secret gate
 - `lib/proxy/`: the explicit Neon Management API allowlist
 - `lib/tokens/`: assertion and access-token signing and verification
+- `lib/janitor/`: daily unclaimed-project purge (30-day retention)
 - `lib/store/`: schema, migrations, and state persistence
 - `lib/neon/`: the internal Neon Management API client
 - `lib/errors/`: public service error codes and envelopes

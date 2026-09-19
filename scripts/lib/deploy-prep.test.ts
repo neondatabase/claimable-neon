@@ -11,11 +11,13 @@ import {
 	assertNoLiveOnlyEnv,
 	assertRegularEnvFile,
 	declaredUploadKeys,
+	isMissingFunctionError,
 	liveOnlyEnvNames,
 	neonChildEnv,
 	neonDeployArgs,
 	parseDeployArgv,
 	parseLiveFunctionEnvNames,
+	parseTriggerNames,
 	readEnvAssignments,
 	upsertEnvAssignment,
 } from "./deploy-prep.ts";
@@ -131,6 +133,22 @@ describe("neonChildEnv", () => {
 			}),
 		).toThrow(/PROXY_SHARED_SECRET/);
 	});
+
+	it("file retention wins over inherited UNCLAIMED_RETENTION_SECONDS", () => {
+		const child = neonChildEnv({
+			fileEnv: { ...fileEnv, UNCLAIMED_RETENTION_SECONDS: "2592000" },
+			inherited: { UNCLAIMED_RETENTION_SECONDS: "60" },
+		});
+		expect(child.UNCLAIMED_RETENTION_SECONDS).toBe("2592000");
+	});
+
+	it("clears inherited retention when .env.prod omits it so neon.ts uses the default", () => {
+		const child = neonChildEnv({
+			fileEnv,
+			inherited: { UNCLAIMED_RETENTION_SECONDS: "60" },
+		});
+		expect(child.UNCLAIMED_RETENTION_SECONDS).toBeUndefined();
+	});
 });
 
 describe("neonDeployArgs", () => {
@@ -234,6 +252,7 @@ describe("live Function env names", () => {
 		expect(declaredUploadKeys()).toEqual([
 			...REQUIRED_FUNCTION_ENV,
 			...HARDCODED_FUNCTION_ENV,
+			"UNCLAIMED_RETENTION_SECONDS",
 		]);
 		expect(
 			liveOnlyEnvNames({
@@ -249,5 +268,33 @@ describe("live Function env names", () => {
 		).toEqual(["STALE_KEY"]);
 		expect(() => assertNoLiveOnlyEnv(["STALE_KEY"])).toThrow(/STALE_KEY/);
 		expect(() => assertNoLiveOnlyEnv([])).not.toThrow();
+	});
+});
+
+describe("isMissingFunctionError", () => {
+	it("treats not-found and 404 stderr as a missing Function", () => {
+		const notFound = Object.assign(new Error("Command failed"), {
+			stderr: 'Error: function "janitor" not found\n',
+		});
+		const missingJson = Object.assign(new Error("Command failed: 404"), {
+			stderr: '{"code":"404","message":"not found"}',
+		});
+		expect(isMissingFunctionError(notFound)).toBe(true);
+		expect(isMissingFunctionError(missingJson)).toBe(true);
+		expect(isMissingFunctionError(new Error("unauthorized"))).toBe(false);
+		expect(isMissingFunctionError("nope")).toBe(false);
+	});
+});
+
+describe("parseTriggerNames", () => {
+	it("reads names from a raw array or a triggers wrapper", () => {
+		expect(parseTriggerNames([{ name: "daily-purge" }])).toEqual(["daily-purge"]);
+		expect(parseTriggerNames({ triggers: [{ name: "hourly" }] })).toEqual(["hourly"]);
+		expect(parseTriggerNames([])).toEqual([]);
+	});
+
+	it("rejects a payload without names", () => {
+		expect(() => parseTriggerNames({ ok: true })).toThrow(/expected array/);
+		expect(() => parseTriggerNames([{ id: "t1" }])).toThrow(/missing name/);
 	});
 });

@@ -4,15 +4,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+	DAILY_PURGE_CRON,
+	DAILY_PURGE_TRIGGER_NAME,
+	FUNCTION_SLUGS,
 	assertGitSha,
 	assertNoLiveOnlyEnv,
 	assertRegularEnvFile,
 	declaredUploadKeys,
+	isMissingFunctionError,
 	liveOnlyEnvNames,
 	neonChildEnv,
 	neonDeployArgs,
 	parseDeployArgv,
 	parseLiveFunctionEnvNames,
+	parseTriggerNames,
 	readEnvAssignments,
 	upsertEnvAssignment,
 } from "./lib/deploy-prep.ts";
@@ -34,31 +39,76 @@ function gitShortSha(cwd: string): string {
 	return assertGitSha(sha);
 }
 
-function liveFunctionEnvNames(cwd: string, env: NodeJS.ProcessEnv): string[] {
+const FUNCTION_PROJECT_FLAGS = [
+	"--profile",
+	"dbx",
+	"--project-id",
+	"soft-morning-58679842",
+	"--branch",
+	"main",
+] as const;
+
+function liveFunctionEnvNames(
+	cwd: string,
+	env: NodeJS.ProcessEnv,
+	slug: string,
+): string[] {
+	let raw: string;
+	try {
+		raw = execFileSync(
+			"neon",
+			["functions", "get", slug, ...FUNCTION_PROJECT_FLAGS, "--output", "json"],
+			{ cwd, env, encoding: "utf8" },
+		);
+	} catch (error) {
+		if (isMissingFunctionError(error)) return [];
+		throw error;
+	}
+	let payload: unknown;
+	try {
+		payload = JSON.parse(raw);
+	} catch {
+		throw new Error(`neon functions get ${slug}: invalid JSON`);
+	}
+	return parseLiveFunctionEnvNames(payload);
+}
+
+function liveUploadEnvNames(cwd: string, env: NodeJS.ProcessEnv): string[] {
+	return [
+		...new Set(FUNCTION_SLUGS.flatMap((slug) => liveFunctionEnvNames(cwd, env, slug))),
+	];
+}
+
+function ensureDailyPurgeTrigger(cwd: string, env: NodeJS.ProcessEnv): void {
 	const raw = execFileSync(
 		"neon",
-		[
-			"functions",
-			"get",
-			"claimable",
-			"--profile",
-			"dbx",
-			"--project-id",
-			"soft-morning-58679842",
-			"--branch",
-			"main",
-			"--output",
-			"json",
-		],
+		["triggers", "list", ...FUNCTION_PROJECT_FLAGS, "--output", "json"],
 		{ cwd, env, encoding: "utf8" },
 	);
 	let payload: unknown;
 	try {
 		payload = JSON.parse(raw);
 	} catch {
-		throw new Error("neon functions get: invalid JSON");
+		throw new Error("neon triggers list: invalid JSON");
 	}
-	return parseLiveFunctionEnvNames(payload);
+	if (parseTriggerNames(payload).includes(DAILY_PURGE_TRIGGER_NAME)) {
+		return;
+	}
+	execFileSync(
+		"neon",
+		[
+			"triggers",
+			"create",
+			"--function-slug",
+			"janitor",
+			"--name",
+			DAILY_PURGE_TRIGGER_NAME,
+			"--cron",
+			DAILY_PURGE_CRON,
+			...FUNCTION_PROJECT_FLAGS,
+		],
+		{ cwd, env, stdio: "inherit" },
+	);
 }
 
 const cli = parseDeployArgv(process.argv.slice(2));
@@ -66,6 +116,7 @@ if (cli.kind === "help") {
 	process.stdout.write(
 		[
 			"bun run deploy             Apply neon.ts with profile dbx, .env.prod, and --no-env-pull.",
+			"                           Creates the daily-purge janitor trigger if it is missing.",
 			"bun run deploy -- --plan   Show planned changes without applying them.",
 			"",
 			"Both commands update SENTRY_RELEASE in .env.prod to this checkout's HEAD.",
@@ -90,7 +141,7 @@ const childEnv = neonChildEnv({
 });
 assertNoLiveOnlyEnv(
 	liveOnlyEnvNames({
-		liveNames: liveFunctionEnvNames(root, process.env),
+		liveNames: liveUploadEnvNames(root, process.env),
 		uploadKeys: declaredUploadKeys(),
 	}),
 );
@@ -103,3 +154,7 @@ execFileSync("neon", args, {
 	env: childEnv,
 	stdio: "inherit",
 });
+
+if (cli.kind === "apply") {
+	ensureDailyPurgeTrigger(root, process.env);
+}

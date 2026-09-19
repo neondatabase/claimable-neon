@@ -23,6 +23,7 @@ target shape.
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts`; live `POST https://track.neon.tech/v1/track` 202 after analytics-events prod 2026-08-28 |
+| Daily unclaimed-project purge (30 days from `created_at`; 72h remains agent/token expiry only) | `lib/janitor/`, `src/janitor.ts`, `neon.ts` `janitor` Function, `daily-purge` trigger | `test/janitor-selection.test.ts`, `test/janitor-trigger.test.ts`, `test/janitor-app.test.ts`, `test/janitor-config.test.ts`, `test/e2e/janitor.test.ts`, `test/e2e/janitor-retry.test.ts`, `test/e2e/retention-cleanup.test.ts` |
 | Real project provisioning, operation readiness, project-scoped key minting, Managed Better Auth and Data API at create or later via the allowlisted POSTs (including Data API `neon_auth` recording Auth from GET `/auth`), identity `data_api` create body, Data API DELETE bookkeeping, and cleanup | `lib/neon/`, `lib/app/app.ts`, `lib/proxy/data-api-body.ts` | `test/e2e/local-service.test.ts`, `test/data-api-body.test.ts`, `test/allowlist.test.ts` |
 | Store schema and registration, token, capability, credential, and revocation queries | `lib/store/` | exercised by `test/e2e/local-service.test.ts` |
 | Local Node server and migration flow | `src/local.ts`, `lib/store/migrate.ts` | run locally against the persistent state database |
@@ -31,7 +32,6 @@ target shape.
 
 ## Not yet implemented
 
-- Automatic deletion of expired unclaimed projects. Orbit task 101 on project 6 (Neon AX/DX), blocked on Neon Functions cron.
 - Dedicated Neon service user whose only organization is the unclaimed-projects org. Not a beta
   blocker (Andre 2026-08-26): mint still uses account API key `claimable-fn-20260825` for
   `andre.landgraf@databricks.com`. Create, delete, transfer, and revoke use organization API key
@@ -39,7 +39,7 @@ target shape.
   `created_by` on that key row; it does not set `explicit_project_permission` on the project.
   Function compute is Neon Prod `soft-morning-58679842`. Andre is admin on the holding org.
 - dbt stg/fact for analytics-events source `claimable-neon`. The dedicated write key is live (`ANALYTICS_WRITE_KEY` on Function deployment 15; analytics-events prod 2026-08-28). `prod.product.claimable_neon_*` is still empty.
-- Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known) and for unclaimed expiry. Fall-off before `POST /v1/agent/identity` is invisible. `claim_missing_project` covers a human claim of a project that left the holding org.
+- Usage events for discovery GETs (`/llms.txt`, `/auth.md`, well-known). Fall-off before `POST /v1/agent/identity` is invisible. `unclaimed_purged` covers 30-day retention deletes. `claim_missing_project` covers a human claim of a project that left the holding org.
 - `POST /v1/feedback` for agent free-text, recorded like `usage_events`. auth.md has no contact channel yet.
 
 ## Deferred

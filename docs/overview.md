@@ -14,7 +14,7 @@ new API will be https://claimable.neon.tech - built for agents.
 | https://claimable.neon.tech | Live. Beta-ready 2026-08-26. Function + Vercel forwarder. `PUBLIC_ORIGIN` is this host. |
 | https://neon.com/docs/reference/claimable-neon | Claimable Neon docs on neon.com. |
 | Funnel | Track agent flow through claimable Neon. API events in `usage_events`. |
-| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, `PUBLIC_ORIGIN`, and the dedicated track.neon.tech write key exist. Beta-ready 2026-08-26 (org-key create; personal key for mint). Dedicated service user and cron are not beta blockers. Public announce is appendix step 2 (2026-09-10). |
+| Neon Function + Vercel forwarder, dedicated https://track.neon.tech write key, expiry janitor cron, claimable.neon.tech DNS. | Function, forwarder, DNS, HTTPS, `PUBLIC_ORIGIN`, dedicated track.neon.tech write key, and daily unclaimed-project purge exist. Beta-ready 2026-08-26 (org-key create; personal key for mint). Dedicated service user is not a beta blocker. Public announce is appendix step 2 (2026-09-10). |
 
 ## Motivation
 

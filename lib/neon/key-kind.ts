@@ -26,6 +26,14 @@ export const assertNeonApiKeyKindPair = (
 	);
 };
 
+export const assertOrganizationApiKeyKind = (kind: NeonApiKeyKind): void => {
+	if (kind === "organization") return;
+	throw new ServiceError(
+		"internal_error",
+		`NEON_ORG_API_KEY must be an organization key (GET /users/me). Got ${kind}.`,
+	);
+};
+
 export const probeUsersMeKind = async (client: NeonClient): Promise<NeonApiKeyKind> => {
 	try {
 		const response = await client.get("/users/me");

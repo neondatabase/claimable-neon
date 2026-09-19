@@ -108,8 +108,17 @@ enables Sentry for config evaluation, then runs
 `.env.local`. The child env makes `.env.prod` win over inherited Function keys, including an
 empty `SENTRY_RELEASE`. An unset `SENTRY_RELEASE` makes `defineConfig` throw.
 Do not replace the wrapper with raw `neon deploy`; without its production enablement, `neon.ts`
-omits Sentry. Source-only `neon functions deploy claimable --profile dbx --project-id
-soft-morning-58679842 --branch main --src src/function.ts --wait` preserves live Sentry env and is the rollback path.
+omits Sentry. After a successful apply the wrapper creates the `daily-purge` trigger
+(`0 0 * * *` UTC → `janitor`) if it is missing. Source-only
+`neon functions deploy claimable --profile dbx --project-id
+soft-morning-58679842 --branch main --src src/function.ts --wait` (or `janitor` /
+`src/janitor.ts`) preserves live Sentry env and is the rollback path.
+
+The public API Function is `claimable` and requires `PROXY_SHARED_SECRET` on every request.
+Unclaimed-project deletion runs on a second Function, `janitor`, invoked by the daily trigger.
+Agent tokens expire at `PROJECT_TTL_SECONDS` (72 hours). Neon projects stay until
+`UNCLAIMED_RETENTION_SECONDS` (30 days from `created_at`) so a missed claim window can still be
+recovered.
 
 ## Non-negotiable rules
 

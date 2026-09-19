@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { ServiceError } from "../lib/errors/errors.ts";
-import { assertNeonApiKeyKindPair, classifyUsersMeStatus } from "../lib/neon/key-kind.ts";
+import {
+	assertNeonApiKeyKindPair,
+	assertOrganizationApiKeyKind,
+	classifyUsersMeStatus,
+} from "../lib/neon/key-kind.ts";
 
 describe("Neon API key kind probe", () => {
 	it("treats GET /users/me success as a personal key", () => {
@@ -23,5 +27,11 @@ describe("Neon API key kind probe", () => {
 
 	it("accepts personal then organization", () => {
 		expect(() => assertNeonApiKeyKindPair("personal", "organization")).not.toThrow();
+	});
+
+	it("refuses a personal key as the janitor organization credential", () => {
+		expect(() => assertOrganizationApiKeyKind("personal")).toThrow(ServiceError);
+		expect(() => assertOrganizationApiKeyKind("unknown")).toThrow(ServiceError);
+		expect(() => assertOrganizationApiKeyKind("organization")).not.toThrow();
 	});
 });
