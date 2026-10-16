@@ -266,7 +266,10 @@ const parseWith = <Schema extends z.ZodTypeAny>(
 ): z.output<Schema> => {
 	const parsed = schema.safeParse(value);
 	if (!parsed.success) {
-		throw new ServiceError("invalid_request", message, {
+		const issues = parsed.error.issues
+			.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+			.join("; ");
+		throw new ServiceError("invalid_request", `${message} ${issues}`, {
 			details: parsed.error.flatten(),
 		});
 	}

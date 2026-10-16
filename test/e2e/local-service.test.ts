@@ -679,7 +679,12 @@ describe("local Claimable Neon service", () => {
 			}),
 		});
 		expect(response.status).toBe(400);
-		expect(errorResponse.parse(await response.json()).error.code).toBe("invalid_request");
+		const body = z
+			.object({ error: z.object({ code: z.string(), message: z.string() }) })
+			.parse(await response.json());
+		expect(body.error.code).toBe("invalid_request");
+		expect(body.error.message).toContain("region_id");
+		expect(body.error.message).toContain("aws-eu-central-1");
 	});
 
 	it("creates the project in the requested region_id", async () => {
