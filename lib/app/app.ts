@@ -48,6 +48,7 @@ import {
 	parseDataApiServiceCredential,
 	revokeProjectKey,
 } from "../neon/provisioning.ts";
+import { REGIONS } from "../neon/regions.ts";
 import {
 	type MatchedOperation,
 	type Operation,
@@ -108,6 +109,7 @@ const identityRequest = z
 		type: z.literal("anonymous"),
 		capabilities: z.array(z.string().min(1)).max(20).default([]),
 		source: z.string().min(1).max(100).default("raw_api"),
+		region_id: z.enum(REGIONS).optional(),
 		data_api: dataApiCreateBody.optional(),
 	})
 	.strict();
@@ -172,10 +174,12 @@ const emitUsage = async (
 		identityType?: string;
 		reason?: string;
 		claimState?: string;
+		regionId?: string;
 	},
 ): Promise<void> => {
 	const properties: Record<string, string> = {};
 	if (fields.source !== undefined) properties.source = fields.source;
+	if (fields.regionId !== undefined) properties.region_id = fields.regionId;
 	if (fields.method !== undefined) properties.method = fields.method;
 	if (fields.pattern !== undefined) properties.pattern = fields.pattern;
 	if (fields.identityType !== undefined) properties.identity_type = fields.identityType;
@@ -1185,6 +1189,7 @@ export const createApp = (dependencies: AppDependencies) => {
 			const project = await createClaimableProject(
 				dependencies.orgClient,
 				dependencies.config,
+				request.region_id,
 			);
 			projectId = project.projectId;
 			const mintedKey = await mintProjectKey(
@@ -1268,6 +1273,7 @@ export const createApp = (dependencies: AppDependencies) => {
 				registrationId,
 				projectId: project.projectId,
 				identityType: request.type,
+				regionId: project.regionId,
 			});
 
 			return context.json(
@@ -1280,6 +1286,7 @@ export const createApp = (dependencies: AppDependencies) => {
 					project: {
 						id: project.projectId,
 						branch_id: project.branchId,
+						region_id: project.regionId,
 						expires_at: expiresAt.toISOString(),
 					},
 					capabilities: decisions,

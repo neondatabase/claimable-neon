@@ -1,4 +1,5 @@
 import { SCOPES } from "../capabilities/scopes.ts";
+import { REGIONS } from "../neon/regions.ts";
 
 const originWithoutTrailingSlash = (origin: string): string => origin.replace(/\/+$/, "");
 
@@ -130,6 +131,8 @@ available before claim. \`functions\`, \`storage\`, and \`ai_gateway\` return a 
 \`reason: "requires_claim"\` decision. Calling a protected operation for one of those capabilities
 returns the \`capability_requires_claim\` error code.
 
+\`region_id\` is optional and defaults to \`aws-us-east-2\`. Supported values: ${REGIONS.map((region) => `\`${region}\``).join(", ")}.
+
 \`\`\`http
 POST ${base}/v1/agent/identity
 Content-Type: application/json
@@ -140,7 +143,7 @@ Content-Type: application/json
 The response contains:
 
 - \`identity_assertion\`: the durable secret. Store it like an API key.
-- \`project.id\`, \`project.branch_id\`, and \`project.expires_at\`.
+- \`project.id\`, \`project.branch_id\`, \`project.region_id\`, and \`project.expires_at\`.
 - One decision for every requested capability. Check \`granted\` before using a service.
 
 ## Exchange for an access token

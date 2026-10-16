@@ -11,6 +11,7 @@ import {
 	dataApiCreateRequestsNeonAuth,
 } from "../proxy/data-api-body.ts";
 import type { NeonClient } from "./client.ts";
+import type { RegionId } from "./regions.ts";
 
 const operation = z.object({
 	id: z.string().min(1),
@@ -182,6 +183,7 @@ const waitForProjectOperations = async (
 export type ProvisionedProject = {
 	projectId: string;
 	branchId: string;
+	regionId: RegionId;
 	databaseName: string;
 	roleName: string;
 	endpointId: string;
@@ -205,13 +207,15 @@ export type ProjectTransferRequest = {
 export const createClaimableProject = async (
 	client: NeonClient,
 	config: Config,
+	requestedRegionId: RegionId | undefined,
 ): Promise<ProvisionedProject> => {
+	const regionId = requestedRegionId ?? config.neonRegionId;
 	const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 	const response = await client.post("/projects", {
 		project: {
 			name: `${config.projectNamePrefix}-${suffix}`,
 			org_id: config.neonOrgId,
-			region_id: config.neonRegionId,
+			region_id: regionId,
 			pg_version: config.neonPgVersion,
 			store_passwords: true,
 			branch: {
@@ -250,6 +254,7 @@ export const createClaimableProject = async (
 	return {
 		projectId: created.project.id,
 		branchId: created.branch.id,
+		regionId,
 		databaseName: database.name,
 		roleName: role.name,
 		endpointId: endpoint.id,

@@ -13,6 +13,7 @@ import {
 	skillUrlForIssuer,
 } from "../discovery/discovery.ts";
 import { ServiceError } from "../errors/errors.ts";
+import { REGIONS, type RegionId } from "../neon/regions.ts";
 import { isLocalhostHostname } from "./origin.ts";
 
 const HOURS_72 = 72 * 60 * 60;
@@ -55,7 +56,8 @@ const schema = z.object({
 	NEON_ORG_API_KEY: z.string().min(1),
 	NEON_ORG_ID: z.string().min(1),
 	NEON_API_HOST: z.string().url().default("https://console.neon.tech/api/v2"),
-	NEON_REGION_ID: z.string().min(1).default("aws-us-east-2"),
+	/** Region for a registration that does not request one. */
+	NEON_REGION_ID: z.enum(REGIONS).default("aws-us-east-2"),
 	NEON_PG_VERSION: z.coerce.number().int().min(14).max(19).default(17),
 
 	/** Ed25519 private JWK used to sign assertions and access tokens. */
@@ -130,7 +132,7 @@ export type Config = {
 	neonOrgApiKey: string;
 	neonOrgId: string;
 	neonApiHost: string;
-	neonRegionId: string;
+	neonRegionId: RegionId;
 	neonPgVersion: number;
 	tokenSigningKey: string;
 	keyEncryptionKey: Buffer;

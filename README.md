@@ -77,15 +77,18 @@ Register, then exchange the assertion for an access token:
 
 ```http
 POST /v1/agent/identity
-{ "type": "anonymous", "capabilities": ["postgres", "data_api"],
+{ "type": "anonymous", "capabilities": ["postgres", "data_api"], "region_id": "aws-eu-central-1",
   "data_api": { "auth_provider": "external", "jwks_url": "https://idp.example.com/.well-known/jwks.json" } }
 ```
+
+`region_id` is optional and defaults to `aws-us-east-2`. Any AWS region that accepts new Neon
+projects is supported.
 
 ```json
 {
   "registration_id": "reg_…",
   "identity_assertion": "<service-signed JWT, the durable secret>",
-  "project": { "id": "quiet-fog-12345678", "expires_at": "2026-08-07T…Z" },
+  "project": { "id": "quiet-fog-12345678", "region_id": "aws-eu-central-1", "expires_at": "2026-08-07T…Z" },
   "capabilities": [
     { "capability": "postgres", "granted": true },
     { "capability": "data_api",  "granted": true },

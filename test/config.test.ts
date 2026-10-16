@@ -61,6 +61,16 @@ describe("service configuration", () => {
 		).toThrow("distinct from NEON_API_KEY");
 	});
 
+	it("defaults new projects to aws-us-east-2", () => {
+		expect(loadConfig(validEnvironment).neonRegionId).toBe("aws-us-east-2");
+	});
+
+	it("refuses a default region that does not accept new projects", () => {
+		expect(() =>
+			loadConfig({ ...validEnvironment, NEON_REGION_ID: "azure-eastus2" }),
+		).toThrow("NEON_REGION_ID");
+	});
+
 	it("requires NEON_ORG_API_KEY", () => {
 		const { NEON_ORG_API_KEY: _, ...withoutOrgKey } = validEnvironment;
 		expect(() => loadConfig(withoutOrgKey)).toThrow("NEON_ORG_API_KEY");

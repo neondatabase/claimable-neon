@@ -22,6 +22,7 @@ const registrationResponse = z.object({
 	project: z.object({
 		id: z.string().min(1),
 		branch_id: z.string().min(1),
+		region_id: z.string().min(1),
 		expires_at: z.string().datetime(),
 	}),
 	capabilities: z.array(
@@ -200,6 +201,7 @@ describe("local Claimable Neon service", () => {
 		let testFailure: unknown;
 
 		try {
+			expect(registration.project.region_id).toBe("aws-us-east-2");
 			expect(registration.capabilities).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({ capability: "postgres", granted: true }),
@@ -663,6 +665,86 @@ describe("local Claimable Neon service", () => {
 		});
 		expect(response.status).toBe(400);
 		expect(errorResponse.parse(await response.json()).error.code).toBe("invalid_request");
+	});
+
+	it("refuses a region_id that does not accept new projects", async () => {
+		const response = await fetch(`${baseUrl}/v1/agent/identity`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				type: "anonymous",
+				capabilities: ["postgres"],
+				region_id: "azure-eastus2",
+				source: "local_e2e_invalid_region",
+			}),
+		});
+		expect(response.status).toBe(400);
+		expect(errorResponse.parse(await response.json()).error.code).toBe("invalid_request");
+	});
+
+	it("creates the project in the requested region_id", async () => {
+		const databaseUrl = process.env.DATABASE_URL;
+		if (!databaseUrl) {
+			throw new Error("DATABASE_URL is required to read usage_events.");
+		}
+		const registration = registrationResponse.parse(
+			await json(
+				await fetch(`${baseUrl}/v1/agent/identity`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						type: "anonymous",
+						capabilities: ["postgres"],
+						region_id: "aws-eu-central-1",
+						source: "local_e2e_region",
+					}),
+				}),
+			),
+		);
+		const projectId = registration.project.id;
+		const accessToken = await exchange(registration.identity_assertion);
+		let testFailure: unknown;
+
+		try {
+			expect(registration.project.region_id).toBe("aws-eu-central-1");
+
+			const project = z.object({ project: z.object({ region_id: z.string() }) }).parse(
+				await json(
+					await fetch(`${baseUrl}/v1/projects/${projectId}`, {
+						headers: { authorization: `Bearer ${accessToken}` },
+					}),
+				),
+			);
+			expect(project.project.region_id).toBe("aws-eu-central-1");
+
+			const sql = openSql(databaseUrl);
+			try {
+				const usage = await sql.query<{ region_id: string | null }>(
+					`select properties->>'region_id' as region_id
+					from usage_events
+					where project_id = $1 and event = 'registration_created'`,
+					[projectId],
+				);
+				expect(usage.rows).toEqual([{ region_id: "aws-eu-central-1" }]);
+			} finally {
+				await sql.end();
+			}
+		} catch (error) {
+			testFailure = error;
+		}
+
+		const deleted = await fetch(`${baseUrl}/v1/projects/${projectId}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${accessToken}` },
+		});
+		if (deleted.status !== 204) {
+			throw new Error(
+				`Cleanup failed with HTTP ${deleted.status}: ${await deleted.text()}`,
+			);
+		}
+		if (testFailure) {
+			throw testFailure;
+		}
 	});
 
 	it("creates Data API from identity data_api, deletes, and recreates", async () => {
