@@ -21,6 +21,7 @@ target shape.
 | Optional registration `region_id` (AWS regions that accept new projects; default `NEON_REGION_ID`, `aws-us-east-2`) | `lib/neon/regions.ts`, `lib/app/app.ts` | `test/config.test.ts`, `test/e2e/local-service.test.ts` |
 | Claim-code re-issue: unused codes are replaced; after browser redemption a new code is minted only once the transfer window expires and the project is still in the holding org | `lib/claims/issuance.ts`, `lib/app/app.ts` | `test/claim-issuance.test.ts`, `test/e2e/local-service.test.ts` |
 | Claim of a project gone from the holding org: `not_found` / `project_claimed`, plus `claim_missing_project` | `lib/claims/missing-project.ts`, `lib/app/app.ts` | `test/missing-project.test.ts`, `test/e2e/local-service.test.ts` |
+| `claim_failed` usage event (`stage`, `reason`) for every error response from a claim route | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
 | Shared-secret gate so only the Vercel forwarder can call the Function | `lib/edge/secret.ts` | `test/proxy-secret.test.ts`, `test/config.test.ts` |
 | Path-preserving Vercel forwarder (temporary; Functions cannot bind custom hostnames) | `lib/edge/forward.ts`, `server.ts` | `test/forward.test.ts`; live at https://claimable.neon.tech |
 | Usage events in the state database and track.neon.tech (Zerobus) emission | `lib/analytics/`, `lib/store/` | `test/analytics.test.ts`; live `POST https://track.neon.tech/v1/track` 202 after analytics-events prod 2026-08-28 |

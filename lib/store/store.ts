@@ -943,6 +943,7 @@ export type UsageEventName =
 	| "claim_started"
 	| "claim_missing_project"
 	| "claim_reconciled"
+	| "claim_failed"
 	| "proxy_call"
 	| "credentials_read"
 	| "registration_deleted"

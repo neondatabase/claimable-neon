@@ -124,10 +124,14 @@ Track agents down the path above. The questions:
 
 Each of these writes a `usage_events` row and, when `ANALYTICS_WRITE_KEY` is set, an event to
 https://track.neon.tech: `registration_created`, `token_issued`, `credentials_read`, `proxy_call`,
-`claim_started`, `claim_missing_project`, `claim_reconciled`, `registration_deleted`. Registration
-accepts `source` (default `raw_api`). Denied capabilities are rows in `capability_requests`.
+`claim_started`, `claim_missing_project`, `claim_reconciled`, `claim_failed`, `registration_deleted`.
+Registration accepts `source` (default `raw_api`). Denied capabilities are rows in `capability_requests`.
 `claim_missing_project` is a human submitting a claim code after the project left the holding org
-(`reason` `deleted` or `already_claimed`).
+(`reason` `deleted` or `already_claimed`). `claim_failed` is any error response from a claim route:
+`stage` is `code_issue` (`POST /v1/projects/{id}/claim`, `POST /v1/agent/identity/claim`),
+`code_submit` (`POST /claim`), or `status` (`GET /v1/projects/{id}/claim`), and `reason` is the
+error code. It carries `source` and the project once the request resolved a registration; a mistyped
+claim code has neither.
 
 | Question | From those events |
 |---|---|
@@ -137,6 +141,7 @@ accepts `source` (default `raw_api`). Denied capabilities are rows in `capabilit
 | Got credentials, never claimed | `credentials_read` without `claim_started` |
 | Human opened claim, never finished | `claim_started` without `claim_reconciled` |
 | Claimed a project that is gone | `claim_missing_project` (`reason` `deleted` or `already_claimed`) |
+| Claim request failed | `claim_failed` by `stage` and `reason` |
 | Deleted instead of claimed | `registration_deleted` |
 
 The dedicated write key is live. `usage_events` is local durability. Warehouse rollups in

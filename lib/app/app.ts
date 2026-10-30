@@ -173,12 +173,14 @@ const emitUsage = async (
 		pattern?: string;
 		identityType?: string;
 		reason?: string;
+		stage?: string;
 		claimState?: string;
 		regionId?: string;
 	},
 ): Promise<void> => {
 	const properties: Record<string, string> = {};
 	if (fields.source !== undefined) properties.source = fields.source;
+	if (fields.stage !== undefined) properties.stage = fields.stage;
 	if (fields.regionId !== undefined) properties.region_id = fields.regionId;
 	if (fields.method !== undefined) properties.method = fields.method;
 	if (fields.pattern !== undefined) properties.pattern = fields.pattern;
@@ -240,8 +242,36 @@ const beginClaimTransfer = async (
 	}
 };
 
+type ClaimStage = "code_issue" | "code_submit" | "status";
+
 type Variables = {
 	requestId: string;
+	claimStage?: ClaimStage;
+	claimRegistration?: Registration;
+};
+
+const recordClaimFailure = async (
+	dependencies: AppDependencies,
+	stage: ClaimStage,
+	registration: Registration | undefined,
+	error: ServiceError,
+): Promise<void> => {
+	try {
+		await emitUsage(dependencies, "claim_failed", {
+			stage,
+			reason: error.code,
+			...(registration
+				? {
+						source: registration.source,
+						registrationId: registration.id,
+						projectId: registration.neonProjectId,
+					}
+				: {}),
+		});
+	} catch (recordError) {
+		// The caller still gets the claim error; a telemetry write must not replace it.
+		Sentry.captureException(recordError, { tags: { event: "claim_failed" } });
+	}
 };
 
 const parseJsonBody = async (request: Request): Promise<unknown> => {
@@ -1381,6 +1411,7 @@ export const createApp = (dependencies: AppDependencies) => {
 	});
 
 	app.post("/v1/agent/identity/claim", async (context) => {
+		context.set("claimStage", "code_issue");
 		const request = parseWith(
 			claimTokenRequest,
 			await parseJsonBody(context.req.raw),
@@ -1398,6 +1429,7 @@ export const createApp = (dependencies: AppDependencies) => {
 			dependencies.sql,
 			assertion.registration_id,
 		);
+		context.set("claimRegistration", registration);
 		return withRegistrationLock(dependencies.sql, registration.id, async (lockedSql) => {
 			const lockedDependencies = { ...dependencies, sql: lockedSql };
 			const current = await requireUsableRegistration(lockedSql, registration.id);
@@ -1406,10 +1438,12 @@ export const createApp = (dependencies: AppDependencies) => {
 	});
 
 	app.post("/v1/projects/:projectId/claim", async (context) => {
+		context.set("claimStage", "code_issue");
 		return withClaimCodeLock(
 			context.req.header("authorization"),
 			dependencies,
 			async (authenticated, lockedDependencies) => {
+				context.set("claimRegistration", authenticated.registration);
 				requireMatchingProject(
 					authenticated.registration,
 					context.req.param("projectId"),
@@ -1422,11 +1456,13 @@ export const createApp = (dependencies: AppDependencies) => {
 	});
 
 	app.get("/v1/projects/:projectId/claim", async (context) => {
+		context.set("claimStage", "status");
 		return withClaimStatusLock(
 			context.req.header("authorization"),
 			dependencies,
 			async (authenticated, lockedDependencies) => {
 				const registration = authenticated.registration;
+				context.set("claimRegistration", registration);
 				requireMatchingProject(registration, context.req.param("projectId"));
 				return context.json(await getClaimStatus(lockedDependencies, registration));
 			},
@@ -1467,6 +1503,7 @@ export const createApp = (dependencies: AppDependencies) => {
 	});
 
 	app.post("/claim", async (context) => {
+		context.set("claimStage", "code_submit");
 		const request = parseWith(
 			claimCodeRequest,
 			await parseFormBody(context.req.raw),
@@ -1490,6 +1527,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		if (!registration) {
 			throw new ServiceError("invalid_grant", "Claim registration no longer exists.");
 		}
+		context.set("claimRegistration", registration);
 		return withRegistrationLock(dependencies.sql, registration.id, async (lockedSql) => {
 			const lockedDependencies = { ...dependencies, sql: lockedSql };
 			const currentAttempt = await latestClaimAttempt(lockedSql, registration.id);
@@ -1655,7 +1693,7 @@ export const createApp = (dependencies: AppDependencies) => {
 		);
 	});
 
-	app.onError((error, context) => {
+	app.onError(async (error, context) => {
 		const serviceError = toServiceError(error);
 		const requestId = context.get("requestId") ?? randomUUID();
 		if (shouldCaptureServiceError(serviceError)) {
@@ -1664,6 +1702,15 @@ export const createApp = (dependencies: AppDependencies) => {
 				tags.upstream_status = String(serviceError.options.upstreamStatus);
 			}
 			Sentry.captureException(error, { tags });
+		}
+		const claimStage = context.get("claimStage");
+		if (claimStage !== undefined) {
+			await recordClaimFailure(
+				dependencies,
+				claimStage,
+				context.get("claimRegistration"),
+				serviceError,
+			);
 		}
 		if (context.req.method === "POST" && context.req.path === "/claim") {
 			return claimErrorResponse(serviceError, requestId);

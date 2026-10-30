@@ -1046,6 +1046,10 @@ describe("local Claimable Neon service", () => {
 
 		try {
 			const accessToken = await exchange(assertion);
+			const statusBeforeClaim = await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
+				headers: { authorization: `Bearer ${accessToken}` },
+			});
+			expect(statusBeforeClaim.status).toBe(404);
 			const claim = claimCodeResponse.parse(
 				await json(
 					await fetch(`${baseUrl}/v1/projects/${projectId}/claim`, {
@@ -1099,6 +1103,36 @@ describe("local Claimable Neon service", () => {
 				);
 				expect(rows[0]?.event).toBe("claim_missing_project");
 				expect(rows[0]?.properties.reason).toBe("deleted");
+
+				const failures = await sql.query<{
+					source: string | null;
+					properties: { stage?: string; reason?: string };
+				}>(
+					`select source, properties
+					from usage_events
+					where project_id = $1
+						and event = 'claim_failed'
+					order by created_at`,
+					[projectId],
+				);
+				expect(failures.rows).toEqual([
+					{
+						source: "local_e2e_missing_project",
+						properties: {
+							source: "local_e2e_missing_project",
+							stage: "status",
+							reason: "not_found",
+						},
+					},
+					{
+						source: "local_e2e_missing_project",
+						properties: {
+							source: "local_e2e_missing_project",
+							stage: "code_submit",
+							reason: "not_found",
+						},
+					},
+				]);
 			} finally {
 				await sql.end();
 			}
