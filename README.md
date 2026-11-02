@@ -78,11 +78,14 @@ Register, then exchange the assertion for an access token:
 ```http
 POST /v1/agent/identity
 { "type": "anonymous", "capabilities": ["postgres", "data_api"], "region_id": "aws-eu-central-1",
+  "project_name": "my-app",
   "data_api": { "auth_provider": "external", "jwks_url": "https://idp.example.com/.well-known/jwks.json" } }
 ```
 
 `region_id` is optional and defaults to `aws-us-east-2`. Any AWS region that accepts new Neon
-projects is supported.
+projects is supported. `project_name` is optional (1 to 256 characters) and becomes the Neon
+project name, which the project keeps when it is transferred to the claiming organization.
+Without it the name is `claimable-<random>`.
 
 ```json
 {

@@ -110,6 +110,7 @@ const identityRequest = z
 		capabilities: z.array(z.string().min(1)).max(20).default([]),
 		source: z.string().min(1).max(100).default("raw_api"),
 		region_id: z.enum(REGIONS).optional(),
+		project_name: z.string().trim().min(1).max(256).optional(),
 		data_api: dataApiCreateBody.optional(),
 	})
 	.strict();
@@ -1222,7 +1223,7 @@ export const createApp = (dependencies: AppDependencies) => {
 			const project = await createClaimableProject(
 				dependencies.orgClient,
 				dependencies.config,
-				request.region_id,
+				{ regionId: request.region_id, projectName: request.project_name },
 			);
 			projectId = project.projectId;
 			const mintedKey = await mintProjectKey(
