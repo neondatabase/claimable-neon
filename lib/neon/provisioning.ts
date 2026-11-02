@@ -207,13 +207,15 @@ export type ProjectTransferRequest = {
 export const createClaimableProject = async (
 	client: NeonClient,
 	config: Config,
-	requestedRegionId: RegionId | undefined,
+	requested: { regionId: RegionId | undefined; projectName: string | undefined },
 ): Promise<ProvisionedProject> => {
-	const regionId = requestedRegionId ?? config.neonRegionId;
-	const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
+	const regionId = requested.regionId ?? config.neonRegionId;
+	const name =
+		requested.projectName ??
+		`${config.projectNamePrefix}-${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 	const response = await client.post("/projects", {
 		project: {
-			name: `${config.projectNamePrefix}-${suffix}`,
+			name,
 			org_id: config.neonOrgId,
 			region_id: regionId,
 			pg_version: config.neonPgVersion,

@@ -687,7 +687,26 @@ describe("local Claimable Neon service", () => {
 		expect(body.error.message).toContain("aws-eu-central-1");
 	});
 
-	it("creates the project in the requested region_id", async () => {
+	it("refuses a blank project_name", async () => {
+		const response = await fetch(`${baseUrl}/v1/agent/identity`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				type: "anonymous",
+				capabilities: ["postgres"],
+				project_name: "   ",
+				source: "local_e2e_blank_project_name",
+			}),
+		});
+		expect(response.status).toBe(400);
+		const body = z
+			.object({ error: z.object({ code: z.string(), message: z.string() }) })
+			.parse(await response.json());
+		expect(body.error.code).toBe("invalid_request");
+		expect(body.error.message).toContain("project_name");
+	});
+
+	it("creates the project in the requested region_id with the requested project_name", async () => {
 		const databaseUrl = process.env.DATABASE_URL;
 		if (!databaseUrl) {
 			throw new Error("DATABASE_URL is required to read usage_events.");
@@ -701,6 +720,7 @@ describe("local Claimable Neon service", () => {
 						type: "anonymous",
 						capabilities: ["postgres"],
 						region_id: "aws-eu-central-1",
+						project_name: "claimable-local-e2e-named",
 						source: "local_e2e_region",
 					}),
 				}),
@@ -713,14 +733,17 @@ describe("local Claimable Neon service", () => {
 		try {
 			expect(registration.project.region_id).toBe("aws-eu-central-1");
 
-			const project = z.object({ project: z.object({ region_id: z.string() }) }).parse(
-				await json(
-					await fetch(`${baseUrl}/v1/projects/${projectId}`, {
-						headers: { authorization: `Bearer ${accessToken}` },
-					}),
-				),
-			);
+			const project = z
+				.object({ project: z.object({ region_id: z.string(), name: z.string() }) })
+				.parse(
+					await json(
+						await fetch(`${baseUrl}/v1/projects/${projectId}`, {
+							headers: { authorization: `Bearer ${accessToken}` },
+						}),
+					),
+				);
 			expect(project.project.region_id).toBe("aws-eu-central-1");
+			expect(project.project.name).toBe("claimable-local-e2e-named");
 
 			const sql = openSql(databaseUrl);
 			try {

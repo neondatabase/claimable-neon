@@ -19,6 +19,7 @@ target shape.
 | auth.md, llms.txt, and OAuth discovery documents | `lib/discovery/discovery.ts` | `test/discovery.test.ts` |
 | Hono server, anonymous registration, token exchange and revocation, credentials, deletion, and proxy integration | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |
 | Optional registration `region_id` (AWS regions that accept new projects; default `NEON_REGION_ID`, `aws-us-east-2`) | `lib/neon/regions.ts`, `lib/app/app.ts` | `test/config.test.ts`, `test/e2e/local-service.test.ts` |
+| Optional registration `project_name`, kept through the claim transfer (default `PROJECT_NAME_PREFIX-<random>`) | `lib/neon/provisioning.ts`, `lib/app/app.ts` | `test/e2e/local-service.test.ts`, `test/e2e/website-and-claim.test.ts` |
 | Claim-code re-issue: unused codes are replaced; after browser redemption a new code is minted only once the transfer window expires and the project is still in the holding org | `lib/claims/issuance.ts`, `lib/app/app.ts` | `test/claim-issuance.test.ts`, `test/e2e/local-service.test.ts` |
 | Claim of a project gone from the holding org: `not_found` / `project_claimed`, plus `claim_missing_project` | `lib/claims/missing-project.ts`, `lib/app/app.ts` | `test/missing-project.test.ts`, `test/e2e/local-service.test.ts` |
 | `claim_failed` usage event (`stage`, `reason`) for every error response from a claim route | `lib/app/app.ts` | `test/e2e/local-service.test.ts` |

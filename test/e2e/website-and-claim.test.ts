@@ -37,6 +37,7 @@ const sourceApiKey =
 const neonApiBaseUrl = (
 	process.env.CLAIMABLE_E2E_NEON_API_BASE_URL ?? "https://console.neon.tech/api/v2"
 ).replace(/\/+$/, "");
+const CLAIM_E2E_PROJECT_NAME = "claimable-local-claim-e2e-named";
 
 const authorizationServerMetadata = z.object({
 	token_endpoint: z.string().url(),
@@ -219,6 +220,7 @@ const registerProject = async (metadata: Discovery): Promise<Registration> => {
 				body: JSON.stringify({
 					type: "anonymous",
 					capabilities: ["postgres", "data_api", "auth", "functions"],
+					project_name: CLAIM_E2E_PROJECT_NAME,
 					source: "website_claim_e2e",
 				}),
 			}),
@@ -426,6 +428,16 @@ const expectTransferredProjectKeepsDataAndServices = async (
 	anonymousToken: string,
 ): Promise<void> => {
 	const { roleName, databaseName } = postgresTarget(credentials.database_url);
+	const project = await neonRequest(
+		apiKey,
+		"GET",
+		`/projects/${encodeURIComponent(registration.project.id)}`,
+	);
+	expect(project.ok).toBe(true);
+	expect(
+		z.object({ project: z.object({ name: z.string() }) }).parse(await project.json())
+			.project.name,
+	).toBe(CLAIM_E2E_PROJECT_NAME);
 	const auth = await neonRequest(
 		apiKey,
 		"GET",

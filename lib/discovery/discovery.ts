@@ -133,6 +133,9 @@ returns the \`capability_requires_claim\` error code.
 
 \`region_id\` is optional and defaults to \`aws-us-east-2\`. Supported values: ${REGIONS.map((region) => `\`${region}\``).join(", ")}.
 
+\`project_name\` is optional (1 to 256 characters). It becomes the Neon project name and stays
+the project's name after the claim. Without it the project gets a generated name.
+
 \`\`\`http
 POST ${base}/v1/agent/identity
 Content-Type: application/json
