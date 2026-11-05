@@ -323,6 +323,33 @@ describe("local Claimable Neon service", () => {
 			expect(errorResponse.parse(await denied.json()).error.code).toBe(
 				"capability_requires_claim",
 			);
+			const stateDatabaseUrl = process.env.DATABASE_URL;
+			if (!stateDatabaseUrl) {
+				throw new Error("DATABASE_URL is required to read usage_events.");
+			}
+			const stateSql = openSql(stateDatabaseUrl);
+			try {
+				const deniedUsage = await stateSql.query(
+					`select properties
+					from usage_events
+					where project_id = $1 and event = 'capability_requested'`,
+					[projectId],
+				);
+				expect(deniedUsage.rows).toEqual([
+					{
+						properties: expect.objectContaining({
+							stage: "proxy",
+							capability: "functions",
+							granted: false,
+							reason: "requires_claim",
+							method: "GET",
+							pattern: "/projects/:projectId/branches/:branchId/functions",
+						}),
+					},
+				]);
+			} finally {
+				await stateSql.end();
+			}
 
 			const claimCode = claimCodeResponse.parse(
 				await json(

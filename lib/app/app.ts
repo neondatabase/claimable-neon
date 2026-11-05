@@ -3,7 +3,12 @@ import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
 import { z } from "zod";
 
-import type { Analytics } from "../analytics/analytics.ts";
+import type { Analytics, TrackProperties } from "../analytics/analytics.ts";
+import {
+	capabilityRequestedEvent,
+	isTrackedCapabilityRequest,
+	usageEventTrackEvent,
+} from "../analytics/events.ts";
 import {
 	REQUIRES_CLAIM,
 	decideCapabilities,
@@ -177,9 +182,11 @@ const emitUsage = async (
 		stage?: string;
 		claimState?: string;
 		regionId?: string;
+		capability?: string;
+		granted?: boolean;
 	},
 ): Promise<void> => {
-	const properties: Record<string, string> = {};
+	const properties: TrackProperties = {};
 	if (fields.source !== undefined) properties.source = fields.source;
 	if (fields.stage !== undefined) properties.stage = fields.stage;
 	if (fields.regionId !== undefined) properties.region_id = fields.regionId;
@@ -188,21 +195,41 @@ const emitUsage = async (
 	if (fields.identityType !== undefined) properties.identity_type = fields.identityType;
 	if (fields.reason !== undefined) properties.reason = fields.reason;
 	if (fields.claimState !== undefined) properties.claim_state = fields.claimState;
-	await recordUsageEvent(dependencies.sql, {
+	if (fields.capability !== undefined) properties.capability = fields.capability;
+	if (fields.granted !== undefined) properties.granted = fields.granted;
+	const stored = await recordUsageEvent(dependencies.sql, {
 		event,
 		source: fields.source,
 		registrationId: fields.registrationId,
 		projectId: fields.projectId,
 		properties,
 	});
-	const trackProperties: Record<string, string> = { ...properties };
-	if (fields.registrationId !== undefined) {
-		trackProperties.registration_id = fields.registrationId;
+	const tracked = usageEventTrackEvent(
+		{
+			id: stored.id,
+			event,
+			registrationId: fields.registrationId ?? null,
+			projectId: fields.projectId ?? null,
+			properties,
+			createdAt: stored.createdAt,
+		},
+		dependencies.config.publicOrigin,
+	);
+	dependencies.analytics.track(tracked.event, tracked.properties, tracked.options);
+};
+
+const trackCapabilityRequests = (
+	dependencies: AppDependencies,
+	rows: Awaited<ReturnType<typeof recordCapabilityRequests>>,
+	projectId: string,
+): void => {
+	for (const row of rows.filter(isTrackedCapabilityRequest)) {
+		const { event, properties, options } = capabilityRequestedEvent(
+			{ ...row, projectId },
+			dependencies.config.publicOrigin,
+		);
+		dependencies.analytics.track(event, properties, options);
 	}
-	if (fields.projectId !== undefined) {
-		trackProperties.project_id = fields.projectId;
-	}
-	dependencies.analytics.track(event, trackProperties);
 };
 
 const beginClaimTransfer = async (
@@ -1085,6 +1112,20 @@ const proxyManagementRequest = async (
 		);
 	}
 	requireMatchingProject(authenticated.registration, projectId);
+	const capability = matched.operation.capability;
+	if (capability !== undefined && REQUIRES_CLAIM.includes(capability)) {
+		await emitUsage(dependencies, "capability_requested", {
+			stage: "proxy",
+			capability,
+			granted: false,
+			reason: "requires_claim",
+			source: authenticated.registration.source,
+			registrationId: authenticated.registration.id,
+			projectId: authenticated.registration.neonProjectId,
+			method: request.method,
+			pattern: matched.operation.pattern,
+		});
+	}
 	authorizeProxyOperation(matched.operation, authenticated);
 	const body = await proxyRequestBody(request, matched.operation);
 	const client = await projectClient(dependencies, authenticated.registration);
@@ -1297,7 +1338,7 @@ export const createApp = (dependencies: AppDependencies) => {
 				scopes: [],
 				expiresAt,
 			});
-			await recordCapabilityRequests(dependencies.sql, {
+			const capabilityRows = await recordCapabilityRequests(dependencies.sql, {
 				registrationId,
 				source: request.source,
 				decisions,
@@ -1309,6 +1350,7 @@ export const createApp = (dependencies: AppDependencies) => {
 				identityType: request.type,
 				regionId: project.regionId,
 			});
+			trackCapabilityRequests(dependencies, capabilityRows, project.projectId);
 
 			return context.json(
 				{

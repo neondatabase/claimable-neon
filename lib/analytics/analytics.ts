@@ -15,11 +15,19 @@
 
 import { Analytics as SegmentAnalytics } from "@segment/analytics-node";
 
-const TRACK_HOST = "https://track.neon.tech";
-const ANONYMOUS = "anonymous";
+export const TRACK_HOST = "https://track.neon.tech";
+export const ANONYMOUS = "anonymous";
+
+export type TrackProperties = Record<string, string | number | boolean>;
+
+export type TrackOptions = {
+	/** Stable id, so a replayed event dedupes against the live one in the warehouse. */
+	messageId?: string;
+	timestamp?: Date;
+};
 
 export type Analytics = {
-	track: (event: string, properties?: Record<string, string | number | boolean>) => void;
+	track: (event: string, properties?: TrackProperties, options?: TrackOptions) => void;
 	flush: () => Promise<void>;
 };
 
@@ -40,12 +48,14 @@ export const createAnalytics = (writeKey: string | undefined): Analytics => {
 	});
 
 	return {
-		track: (event, properties) => {
+		track: (event, properties, options) => {
 			try {
 				client.track({
 					userId: ANONYMOUS,
 					event,
 					properties,
+					...(options?.messageId !== undefined ? { messageId: options.messageId } : {}),
+					...(options?.timestamp !== undefined ? { timestamp: options.timestamp } : {}),
 				});
 			} catch (error: unknown) {
 				console.error("claimable-neon analytics track failed:", error);

@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
+import type { CapabilityRequestRow, UsageEventReplayRow } from "../analytics/events.ts";
 import type { Capability, DenialReason } from "../capabilities/capabilities.ts";
 import { type Scope, isScope } from "../capabilities/scopes.ts";
 import { ServiceError } from "../errors/errors.ts";
@@ -672,8 +673,8 @@ export const recordCapabilityRequests = async (
 			reason?: DenialReason;
 		}[];
 	},
-): Promise<void> => {
-	if (input.decisions.length === 0) return;
+): Promise<Omit<CapabilityRequestRow, "projectId">[]> => {
+	if (input.decisions.length === 0) return [];
 	const values: unknown[] = [];
 	const placeholders = input.decisions.map((decision, index) => {
 		const offset = index * 5;
@@ -686,12 +687,59 @@ export const recordCapabilityRequests = async (
 		);
 		return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
 	});
-	await queryCount(
+	const rows = await queryRows<CapabilityRequestDbRow>(
 		sql,
 		`insert into capability_requests (registration_id, capability, granted, reason, source)
-		values ${placeholders.join(", ")}`,
+		values ${placeholders.join(", ")}
+		returning id::text as id, capability, granted, reason, source, registration_id, created_at`,
 		values,
 	);
+	return rows.map(toCapabilityRequestRow);
+};
+
+type CapabilityRequestDbRow = {
+	id: string;
+	capability: string;
+	granted: boolean;
+	reason: string | null;
+	source: string | null;
+	registration_id: string | null;
+	created_at: Date;
+};
+
+const toCapabilityRequestRow = (
+	row: CapabilityRequestDbRow,
+): Omit<CapabilityRequestRow, "projectId"> => ({
+	id: row.id,
+	capability: row.capability,
+	granted: row.granted,
+	reason: row.reason,
+	source: row.source,
+	registrationId: row.registration_id,
+	createdAt: row.created_at,
+});
+
+/** Rows created before `before`, oldest first, for replaying them to track.neon.tech. */
+export const listCapabilityRequestsBefore = async (
+	sql: Sql,
+	before: Date,
+): Promise<CapabilityRequestRow[]> => {
+	const rows = await queryRows<
+		CapabilityRequestDbRow & { neon_project_id: string | null }
+	>(
+		sql,
+		`select c.id::text as id, c.capability, c.granted, c.reason, c.source,
+			c.registration_id, r.neon_project_id, c.created_at
+		from capability_requests c
+		left join registrations r on r.id = c.registration_id
+		where c.created_at < $1
+		order by c.id`,
+		[before],
+	);
+	return rows.map((row) => ({
+		...toCapabilityRequestRow(row),
+		projectId: row.neon_project_id,
+	}));
 };
 
 /** The number that decides whether a denied capability is worth building. */
@@ -945,6 +993,7 @@ export type UsageEventName =
 	| "claim_reconciled"
 	| "claim_failed"
 	| "proxy_call"
+	| "capability_requested"
 	| "credentials_read"
 	| "registration_deleted"
 	| "unclaimed_purged";
@@ -958,11 +1007,12 @@ export const recordUsageEvent = async (
 		projectId?: string | undefined;
 		properties?: unknown;
 	},
-): Promise<void> => {
-	await queryCount(
+): Promise<{ id: string; createdAt: Date }> => {
+	const [row] = await queryRows<{ id: string; created_at: Date }>(
 		sql,
 		`insert into usage_events (event, source, registration_id, project_id, properties)
-		values ($1, $2, $3, $4, $5::jsonb)`,
+		values ($1, $2, $3, $4, $5::jsonb)
+		returning id::text as id, created_at`,
 		[
 			input.event,
 			input.source ?? null,
@@ -971,6 +1021,40 @@ export const recordUsageEvent = async (
 			JSON.stringify(input.properties ?? {}),
 		],
 	);
+	if (!row)
+		throw new ServiceError("internal_error", "usage_events insert returned no row.");
+	return { id: row.id, createdAt: row.created_at };
+};
+
+/** `usage_events` rows of one event created before `before`, oldest first, for replay. */
+export const listUsageEventsBefore = async (
+	sql: Sql,
+	event: UsageEventName,
+	before: Date,
+): Promise<UsageEventReplayRow[]> => {
+	const rows = await queryRows<{
+		id: string;
+		event: string;
+		registration_id: string | null;
+		project_id: string | null;
+		properties: Record<string, unknown>;
+		created_at: Date;
+	}>(
+		sql,
+		`select id::text as id, event, registration_id, project_id, properties, created_at
+		from usage_events
+		where event = $1 and created_at < $2
+		order by id`,
+		[event, before],
+	);
+	return rows.map((row) => ({
+		id: row.id,
+		event: row.event,
+		registrationId: row.registration_id,
+		projectId: row.project_id,
+		properties: row.properties,
+		createdAt: row.created_at,
+	}));
 };
 
 export type RetentionCleanupReason = "deleted" | "already_gone" | "claimed";
