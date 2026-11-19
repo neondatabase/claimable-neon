@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { Capability } from "../capabilities/capabilities.ts";
 import type { Config } from "../config/config.ts";
-import { ServiceError } from "../errors/errors.ts";
+import { ServiceError, toServiceError } from "../errors/errors.ts";
 import {
 	type DataApiCreateBody,
 	dataApiCreateBodyForProvisioning,
@@ -28,8 +28,11 @@ const operation = z.object({
 	error: z.string().optional(),
 });
 
-const createProjectResponse = z.object({
+const createdProject = z.object({
 	project: z.object({ id: z.string().min(1) }),
+});
+
+const createProjectResponse = createdProject.extend({
 	branch: z.object({ id: z.string().min(1) }),
 	roles: z.array(z.object({ name: z.string().min(1) })).min(1),
 	databases: z.array(z.object({ name: z.string().min(1) })).min(1),
@@ -132,8 +135,9 @@ const waitForProjectOperations = async (
 	client: NeonClient,
 	projectId: string,
 	initialOperations: readonly z.infer<typeof operation>[],
+	timeoutMs = OPERATION_TIMEOUT_MS,
 ): Promise<void> => {
-	const deadline = Date.now() + OPERATION_TIMEOUT_MS;
+	const deadline = Date.now() + timeoutMs;
 	const pending = new Set(
 		initialOperations.filter((item) => item.status !== "finished").map((item) => item.id),
 	);
@@ -208,6 +212,7 @@ export const createClaimableProject = async (
 	client: NeonClient,
 	config: Config,
 	requested: { regionId: RegionId | undefined; projectName: string | undefined },
+	options: { operationTimeoutMs?: number } = {},
 ): Promise<ProvisionedProject> => {
 	const regionId = requested.regionId ?? config.neonRegionId;
 	const name =
@@ -237,30 +242,47 @@ export const createClaimableProject = async (
 			},
 		},
 	});
-	const created = parseUpstream(
-		createProjectResponse,
+	const projectId = parseUpstream(
+		createdProject,
 		response.data,
 		"creating a claimable project",
-	);
-	const role = created.roles[0];
-	const database = created.databases[0];
-	const endpoint = created.endpoints[0];
-	if (!role || !database || !endpoint) {
-		throw new ServiceError(
-			"upstream_error",
-			"Neon created a project without its default database resources.",
-			{ origin: "upstream" },
+	).project.id;
+	try {
+		const created = parseUpstream(
+			createProjectResponse,
+			response.data,
+			"creating a claimable project",
 		);
+		const role = created.roles[0];
+		const database = created.databases[0];
+		const endpoint = created.endpoints[0];
+		if (!role || !database || !endpoint) {
+			throw new ServiceError(
+				"upstream_error",
+				"Neon created a project without its default database resources.",
+				{ origin: "upstream" },
+			);
+		}
+		await waitForProjectOperations(
+			client,
+			projectId,
+			created.operations,
+			options.operationTimeoutMs,
+		);
+		return {
+			projectId,
+			branchId: created.branch.id,
+			regionId,
+			databaseName: database.name,
+			roleName: role.name,
+			endpointId: endpoint.id,
+		};
+	} catch (error) {
+		// The caller learns the project id only from a successful return, and the janitor only
+		// purges projects that have a registration, so nothing else would ever delete this one.
+		await deleteUninitializedProject(client, projectId, error);
+		throw error;
 	}
-	await waitForProjectOperations(client, created.project.id, created.operations);
-	return {
-		projectId: created.project.id,
-		branchId: created.branch.id,
-		regionId,
-		databaseName: database.name,
-		roleName: role.name,
-		endpointId: endpoint.id,
-	};
 };
 
 export const mintProjectKey = async (
@@ -412,6 +434,30 @@ const retryProjectLock = async <Result>(
 			}
 			await setTimeout(1000);
 		}
+	}
+};
+
+const deleteUninitializedProject = async (
+	client: NeonClient,
+	projectId: string,
+	original: unknown,
+): Promise<void> => {
+	try {
+		await retryProjectLock(() => deleteClaimableProject(client, projectId));
+	} catch (error) {
+		if (
+			error instanceof ServiceError &&
+			error.code === "upstream_error" &&
+			error.options.upstreamStatus === 404
+		) {
+			return;
+		}
+		const failure = `project ${projectId}: ${toServiceError(error).message}`;
+		throw new ServiceError(
+			"internal_error",
+			`Provisioning failed and cleanup was incomplete (${failure}).`,
+			{ cause: original, details: { cleanup_failures: [failure] } },
+		);
 	}
 };
 
