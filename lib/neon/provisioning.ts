@@ -414,7 +414,19 @@ export const getProjectOwnerOrg = async (
 	}
 };
 
-const retryProjectLock = async <Result>(
+/**
+ * 423 is a project operation still running. A gateway 502 or 503 may or may not have reached
+ * Neon, so only calls that are safe to send twice may be repeated on one.
+ */
+const REPEATABLE_CALL_RETRY_STATUSES: ReadonlySet<number> = new Set([423, 502, 503]);
+
+export const isRepeatableNeonFailure = (error: unknown): boolean =>
+	error instanceof ServiceError &&
+	error.code === "upstream_error" &&
+	error.options.upstreamStatus !== undefined &&
+	REPEATABLE_CALL_RETRY_STATUSES.has(error.options.upstreamStatus);
+
+const retryRepeatableNeonCall = async <Result>(
 	operation: () => Promise<Result>,
 ): Promise<Result> => {
 	const deadline = Date.now() + 60_000;
@@ -422,14 +434,7 @@ const retryProjectLock = async <Result>(
 		try {
 			return await operation();
 		} catch (error) {
-			if (
-				!(
-					error instanceof ServiceError &&
-					error.code === "upstream_error" &&
-					error.options.upstreamStatus === 423
-				) ||
-				Date.now() >= deadline
-			) {
+			if (!isRepeatableNeonFailure(error) || Date.now() >= deadline) {
 				throw error;
 			}
 			await setTimeout(1000);
@@ -465,7 +470,7 @@ const resetProjectRolePassword = async (
 	client: NeonClient,
 	project: Pick<ProvisionedProject, "projectId" | "branchId" | "roleName">,
 ): Promise<ProjectPasswordRole> => {
-	const response = await retryProjectLock(() =>
+	const response = await retryRepeatableNeonCall(() =>
 		client.post(
 			`/projects/${pathSegment(project.projectId)}/branches/${pathSegment(project.branchId)}/roles/${pathSegment(project.roleName)}/reset_password`,
 		),
@@ -538,7 +543,7 @@ export const setProjectEndpointsDisabled = async (
 		);
 	}
 	for (const endpoint of endpoints) {
-		const response = await retryProjectLock(() =>
+		const response = await retryRepeatableNeonCall(() =>
 			client.patch(
 				`/projects/${pathSegment(project.projectId)}/endpoints/${pathSegment(endpoint.id)}`,
 				{ endpoint: { disabled } },
