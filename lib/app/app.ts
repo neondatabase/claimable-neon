@@ -46,6 +46,7 @@ import {
 	createClaimableProject,
 	createProjectTransferRequest,
 	deleteClaimableProject,
+	deleteProvisionedProject,
 	getProjectOwnerOrg,
 	mintProjectKey,
 	parseAuthServiceCredential,
@@ -660,7 +661,7 @@ const cleanupProvisioning = async (
 	}
 	if (input.projectId !== undefined) {
 		try {
-			await deleteClaimableProject(dependencies.orgClient, input.projectId);
+			await deleteProvisionedProject(dependencies.orgClient, input.projectId);
 		} catch (error) {
 			cleanupFailures.push(`project: ${toServiceError(error).message}`);
 		}

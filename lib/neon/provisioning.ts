@@ -442,10 +442,13 @@ const retryRepeatableNeonCall = async <Result>(
 	}
 };
 
-const deleteUninitializedProject = async (
+/**
+ * Deletes a project this service just created and never handed out. A repeat after a gateway
+ * 502 or 503 may find the project already deleted, so a 404 counts as done.
+ */
+export const deleteProvisionedProject = async (
 	client: NeonClient,
 	projectId: string,
-	original: unknown,
 ): Promise<void> => {
 	try {
 		await retryRepeatableNeonCall(() => deleteClaimableProject(client, projectId));
@@ -457,6 +460,18 @@ const deleteUninitializedProject = async (
 		) {
 			return;
 		}
+		throw error;
+	}
+};
+
+const deleteUninitializedProject = async (
+	client: NeonClient,
+	projectId: string,
+	original: unknown,
+): Promise<void> => {
+	try {
+		await deleteProvisionedProject(client, projectId);
+	} catch (error) {
 		const failure = `project ${projectId}: ${toServiceError(error).message}`;
 		throw new ServiceError(
 			"internal_error",
