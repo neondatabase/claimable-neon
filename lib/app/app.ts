@@ -107,13 +107,14 @@ import {
 	verifyAccessToken,
 	verifyAssertion,
 } from "../tokens/tokens.ts";
+import { nonEmptyStringArray } from "../validation/string-array.ts";
 
 const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
 const identityRequest = z
 	.object({
 		type: z.literal("anonymous"),
-		capabilities: z.array(z.string().min(1)).max(20).default([]),
+		capabilities: nonEmptyStringArray({ max: 20 }).default([]),
 		source: z.string().min(1).max(100).default("raw_api"),
 		region_id: z.enum(REGIONS).optional(),
 		project_name: z.string().trim().min(1).max(256).optional(),
