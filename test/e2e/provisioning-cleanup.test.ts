@@ -7,6 +7,7 @@ import { NeonClient } from "../../lib/neon/client.ts";
 import {
 	createClaimableProject,
 	deleteClaimableProject,
+	deleteProvisionedProject,
 } from "../../lib/neon/provisioning.ts";
 
 const config = loadConfig(process.env);
@@ -15,6 +16,7 @@ const orgClient = new NeonClient({
 	baseUrl: config.neonApiHost,
 });
 const projectName = `${config.projectNamePrefix}-init-fail-${randomUUID().slice(0, 8)}`;
+const deletedTwiceName = `${config.projectNamePrefix}-delete-twice-${randomUUID().slice(0, 8)}`;
 
 const projectsResponse = z.object({
 	projects: z.array(z.object({ id: z.string().min(1), name: z.string() })),
@@ -30,8 +32,10 @@ const projectsNamed = async (name: string) => {
 };
 
 afterAll(async () => {
-	for (const project of await projectsNamed(projectName)) {
-		await deleteClaimableProject(orgClient, project.id);
+	for (const name of [projectName, deletedTwiceName]) {
+		for (const project of await projectsNamed(name)) {
+			await deleteClaimableProject(orgClient, project.id);
+		}
 	}
 });
 
@@ -51,5 +55,21 @@ describe("claimable project initialization failure", () => {
 		});
 
 		expect(await projectsNamed(projectName)).toEqual([]);
+	});
+});
+
+describe("deleteProvisionedProject", () => {
+	it("treats a project that is already deleted as deleted", async () => {
+		const project = await createClaimableProject(orgClient, config, {
+			regionId: undefined,
+			projectName: deletedTwiceName,
+		});
+
+		await deleteProvisionedProject(orgClient, project.projectId);
+		await expect(
+			deleteProvisionedProject(orgClient, project.projectId),
+		).resolves.toBeUndefined();
+
+		expect(await projectsNamed(deletedTwiceName)).toEqual([]);
 	});
 });
