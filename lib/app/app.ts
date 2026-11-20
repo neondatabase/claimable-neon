@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 
 import type { Analytics, TrackProperties } from "../analytics/analytics.ts";
@@ -108,13 +107,14 @@ import {
 	verifyAccessToken,
 	verifyAssertion,
 } from "../tokens/tokens.ts";
+import { nonEmptyStringArray } from "../validation/string-array.ts";
 
 const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
 const identityRequest = z
 	.object({
 		type: z.literal("anonymous"),
-		capabilities: z.array(z.string().min(1)).max(20).default([]),
+		capabilities: nonEmptyStringArray({ max: 20 }).default([]),
 		source: z.string().min(1).max(100).default("raw_api"),
 		region_id: z.enum(REGIONS).optional(),
 		project_name: z.string().trim().min(1).max(256).optional(),
@@ -303,11 +303,6 @@ const recordClaimFailure = async (
 		Sentry.captureException(recordError, { tags: { event: "claim_failed" } });
 	}
 };
-
-// zod 3 validates every element of an array even after a `.max()` failure, so an anonymous
-// multi-megabyte array costs hundreds of megabytes of issues. Every body this API accepts is a
-// few kilobytes.
-const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 
 const parseJsonBody = async (request: Request): Promise<unknown> => {
 	try {
@@ -1211,15 +1206,6 @@ export const createApp = (dependencies: AppDependencies) => {
 			await dependencies.analytics.flush();
 		}
 	});
-	app.use(
-		"*",
-		bodyLimit({
-			maxSize: MAX_REQUEST_BODY_BYTES,
-			onError: () => {
-				throw new ServiceError("invalid_request", "Request body exceeds 64 KiB.");
-			},
-		}),
-	);
 
 	app.get("/health", (context) =>
 		context.json({ status: "ok", service: "claimable-neon" }),

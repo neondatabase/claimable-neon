@@ -1,6 +1,8 @@
 import { isIP } from "node:net";
 import { z } from "zod";
 
+import { nonEmptyStringArray } from "../validation/string-array.ts";
+
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 const SPECIAL_USE_HOST_SUFFIXES = [
@@ -19,7 +21,7 @@ export const dataApiSettingsBody = strict({
 	db_anon_role: z.literal("anonymous").optional(),
 	db_extra_search_path: z.string().min(1).optional(),
 	db_max_rows: z.number().int().min(1).optional(),
-	db_schemas: z.array(z.string().min(1)).optional(),
+	db_schemas: nonEmptyStringArray().optional(),
 	jwt_role_claim_key: z.string().min(1).optional(),
 	jwt_cache_max_lifetime: z.number().int().min(0).optional(),
 	openapi_mode: z.enum(["ignore-privileges", "disabled"]).optional(),
