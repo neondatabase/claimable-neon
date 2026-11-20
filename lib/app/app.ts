@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 
 import type { Analytics, TrackProperties } from "../analytics/analytics.ts";
@@ -302,6 +303,11 @@ const recordClaimFailure = async (
 		Sentry.captureException(recordError, { tags: { event: "claim_failed" } });
 	}
 };
+
+// zod 3 validates every element of an array even after a `.max()` failure, so an anonymous
+// multi-megabyte array costs hundreds of megabytes of issues. Every body this API accepts is a
+// few kilobytes.
+const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 
 const parseJsonBody = async (request: Request): Promise<unknown> => {
 	try {
@@ -1205,6 +1211,15 @@ export const createApp = (dependencies: AppDependencies) => {
 			await dependencies.analytics.flush();
 		}
 	});
+	app.use(
+		"*",
+		bodyLimit({
+			maxSize: MAX_REQUEST_BODY_BYTES,
+			onError: () => {
+				throw new ServiceError("invalid_request", "Request body exceeds 64 KiB.");
+			},
+		}),
+	);
 
 	app.get("/health", (context) =>
 		context.json({ status: "ok", service: "claimable-neon" }),
