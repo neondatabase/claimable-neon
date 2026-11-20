@@ -448,7 +448,7 @@ const deleteUninitializedProject = async (
 	original: unknown,
 ): Promise<void> => {
 	try {
-		await retryProjectLock(() => deleteClaimableProject(client, projectId));
+		await retryRepeatableNeonCall(() => deleteClaimableProject(client, projectId));
 	} catch (error) {
 		if (
 			error instanceof ServiceError &&
