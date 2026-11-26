@@ -108,6 +108,7 @@ import {
 	verifyAssertion,
 } from "../tokens/tokens.ts";
 import { nonEmptyStringArray } from "../validation/string-array.ts";
+import { isWellFormedText } from "../validation/well-formed-text.ts";
 
 const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
@@ -115,7 +116,12 @@ const identityRequest = z
 	.object({
 		type: z.literal("anonymous"),
 		capabilities: nonEmptyStringArray({ max: 20 }).default([]),
-		source: z.string().min(1).max(100).default("raw_api"),
+		source: z
+			.string()
+			.min(1)
+			.max(100)
+			.refine(isWellFormedText, "Expected text without unpaired UTF-16 surrogates.")
+			.default("raw_api"),
 		region_id: z.enum(REGIONS).optional(),
 		project_name: z.string().trim().min(1).max(256).optional(),
 		data_api: dataApiCreateBody.optional(),
