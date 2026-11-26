@@ -111,11 +111,24 @@ import { nonEmptyStringArray } from "../validation/string-array.ts";
 
 const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
+// Postgres `text` cannot store U+0000. `source` and unknown capability names are stored verbatim,
+// and the insert runs only after the Neon project exists.
+const hasNoNullCharacter = (value: string): boolean => !value.includes("\0");
+
+const NULL_CHARACTER_MESSAGE = "Must not contain a null character (U+0000).";
+
 const identityRequest = z
 	.object({
 		type: z.literal("anonymous"),
-		capabilities: nonEmptyStringArray({ max: 20 }).default([]),
-		source: z.string().min(1).max(100).default("raw_api"),
+		capabilities: nonEmptyStringArray({ max: 20 })
+			.refine((values) => values.every(hasNoNullCharacter), NULL_CHARACTER_MESSAGE)
+			.default([]),
+		source: z
+			.string()
+			.min(1)
+			.max(100)
+			.refine(hasNoNullCharacter, NULL_CHARACTER_MESSAGE)
+			.default("raw_api"),
 		region_id: z.enum(REGIONS).optional(),
 		project_name: z.string().trim().min(1).max(256).optional(),
 		data_api: dataApiCreateBody.optional(),
